@@ -1,0 +1,26 @@
+package web
+
+templ Layout(title string) {
+	<!DOCTYPE html>
+	<html lang="pt-BR">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<title>{ title }</title>
+			<link rel="manifest" href="/static/manifest.webmanifest"/>
+			<link rel="stylesheet" href="/static/app.css"/>
+			<script src="/static/htmx.min.js" defer></script>
+		</head>
+		<body class="min-h-screen bg-stone-50 text-stone-900">
+			{ children... }
+		</body>
+	</html>
+}
+
+templ Home() {
+	@Layout("Ukemochi") {
+		<main class="p-4">
+			<h1 class="text-2xl font-bold">Ukemochi</h1>
+		</main>
+	}
+}

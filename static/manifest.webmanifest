@@ -1,0 +1,9 @@
+{
+  "name": "Ukemochi",
+  "short_name": "Ukemochi",
+  "lang": "pt-BR",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fafaf9",
+  "theme_color": "#fafaf9"
+}
