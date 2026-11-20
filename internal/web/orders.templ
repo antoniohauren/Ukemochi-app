@@ -445,17 +445,17 @@ templ AddQtyStep(orderID int64, c db.Category, it db.Item, p db.Product) {
 			<p class="text-lg font-semibold">{ db.DisplayName(it.Name, p.Variant, p.Size) }</p>
 			<p class="tabular-nums text-ink-muted">{ money.Format(p.PriceCents) } cada</p>
 		</div>
-		<form method="post" action={ orderURL(orderID) + "/itens" } hx-post={ orderURL(orderID) + "/itens" } hx-target="#pedido-itens" hx-swap="innerHTML" class="space-y-4">
+		<form method="post" action={ orderURL(orderID) + "/itens" } hx-post={ orderURL(orderID) + "/itens" } hx-target="#pedido-itens" hx-swap="innerHTML">
 			<input type="hidden" name="produto" value={ strconv.FormatInt(p.ID, 10) }/>
-			<div class="flex items-center justify-center gap-3">
-				<button type="button" onclick="this.form.qty.stepDown()" class={ buttonClass("secondary") + " w-16 text-2xl" } aria-label="Menos">−</button>
-				<input type="number" name="qty" value="1" min="1" max={ strconv.FormatInt(db.MaxQty, 10) } inputmode="numeric" required aria-label="Quantidade" class="h-14 w-24 rounded-xl border border-line bg-card text-center text-2xl font-semibold tabular-nums"/>
-				<button type="button" onclick="this.form.qty.stepUp()" class={ buttonClass("secondary") + " w-16 text-2xl" } aria-label="Mais">+</button>
-			</div>
-			<div class="grid">
-				@Button("primary", templ.Attributes{"type": "submit"}) {
-					Adicionar
-				}
+			<div class="flex items-center gap-2">
+				<button type="button" onclick="this.form.qty.stepDown()" class={ buttonClass("secondary") + " w-12 shrink-0 px-0 text-2xl" } aria-label="Menos">−</button>
+				<input type="number" name="qty" value="1" min="1" max={ strconv.FormatInt(db.MaxQty, 10) } inputmode="numeric" required aria-label="Quantidade" class="h-12 w-14 shrink-0 rounded-xl border border-line bg-card text-center text-xl font-semibold tabular-nums"/>
+				<button type="button" onclick="this.form.qty.stepUp()" class={ buttonClass("secondary") + " w-12 shrink-0 px-0 text-2xl" } aria-label="Mais">+</button>
+				<div class="grid flex-1">
+					@Button("primary", templ.Attributes{"type": "submit"}) {
+						Adicionar
+					}
+				</div>
 			</div>
 		</form>
 	</div>
