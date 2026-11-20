@@ -19,19 +19,30 @@ Order helper for a sushi restaurant. Waitresses record WhatsApp and in-house ord
 
 ## Quick start
 
+Needs Go 1.27.4+, `curl` and `sha256sum`.
+
 ```sh
-go install github.com/a-h/templ/cmd/templ@latest
-templ generate
-./bin/tailwindcss -i web/input.css -o static/app.css --minify
-ADMIN_PIN=1234 SESSION_KEY=$(openssl rand -hex 32) go run ./cmd/ukemochi
-# open http://localhost:8080
+make seed   # optional: sample menu
+ADMIN_PIN=1234 SESSION_KEY=$(openssl rand -hex 32) make run
+# open http://127.0.0.1:8080
 ```
+
+`make run` runs `make gen` first: templ generate plus Tailwind build. The first run downloads the Tailwind binary into `bin/` and htmx into `static/`, both checked by SHA256.
+
+To change the port, set `ADDR`, e.g. `ADDR=127.0.0.1:3000`. Use `ADDR=0.0.0.0:8080` to reach it from phones on the LAN.
+
+| Command            | What it does                              |
+|--------------------|-------------------------------------------|
+| `make run`         | Generate, then run the server             |
+| `make test`        | Generate, then `go test ./...`            |
+| `make seed`        | Load the sample menu                      |
+| `make build-arm64` | Static build for the Raspberry Pi         |
 
 ### Environment variables
 
 | Name          | Default        | Purpose                          |
 |---------------|----------------|----------------------------------|
-| `ADDR`        | `:8080`        | Listen address                   |
+| `ADDR`        | `127.0.0.1:8080` | Listen address (host:port)     |
 | `DB_PATH`     | `ukemochi.db`  | SQLite file                      |
 | `ADMIN_PIN`   | (required)     | PIN for `/admin`                 |
 | `SESSION_KEY` | (required)     | HMAC key for the admin cookie    |
@@ -46,5 +57,3 @@ ADMIN_PIN=1234 SESSION_KEY=$(openssl rand -hex 32) go run ./cmd/ukemochi
 - [Deployment](docs/deployment.md)
 - [Decisions](docs/decisions.md)
 - [Implementation plan](docs/plan.md)
-
-The Tailwind standalone binary goes in `bin/` and is not committed. Download it from the [Tailwind releases](https://github.com/tailwindlabs/tailwindcss/releases).
