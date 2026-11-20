@@ -39,7 +39,7 @@ func seed(t *testing.T, d *DB) int64 {
 
 func newOrder(t *testing.T, d *DB, consume string) int64 {
 	t.Helper()
-	id, err := d.CreateOrder(context.Background(), NewOrder{Channel: "whatsapp", Consume: consume, ClientName: "Maria"})
+	id, err := d.CreateOrder(context.Background(), NewOrder{Channel: "whatsapp", Consume: consume, ClientName: "Maria", Address: "Rua A, 1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,8 +53,8 @@ func TestMigrateIdempotent(t *testing.T) {
 	}
 	var v int
 	d.QueryRow("PRAGMA user_version").Scan(&v)
-	if v != 1 {
-		t.Fatalf("user_version = %d, want 1", v)
+	if v != 2 {
+		t.Fatalf("user_version = %d, want 2", v)
 	}
 	var fk int
 	d.QueryRow("PRAGMA foreign_keys").Scan(&fk)
@@ -297,10 +297,10 @@ func TestListOpenOrdersAndMenu(t *testing.T) {
 		t.Fatalf("open = %+v", open)
 	}
 
-	if err := d.SetConsume(ctx, a, ConsumeDelivery); err != nil {
+	if err := d.SetConsume(ctx, a, ConsumeDelivery, "Rua B, 2"); err != nil {
 		t.Fatal(err)
 	}
-	if err := d.SetConsume(ctx, a, "x"); !errors.Is(err, ErrInvalid) {
+	if err := d.SetConsume(ctx, a, "x", ""); !errors.Is(err, ErrInvalid) {
 		t.Fatal("invalid consume accepted")
 	}
 

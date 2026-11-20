@@ -34,6 +34,9 @@ func ticketText(o db.Order) string {
 	add(leftRight(fmt.Sprintf("Pedido #%d", o.ID), localTime(o.CreatedAt, "02/01 15:04"))...)
 	add(wrap(o.ClientName)...)
 	add(leftRight(channelLabels[o.Channel], strings.ToUpper(consumeLabels[o.Consume]))...)
+	if o.Consume == db.ConsumeDelivery && o.Address != "" {
+		add(wrap(o.Address)...)
+	}
 	add(sep)
 	for _, it := range o.Items {
 		add(leftRight(fmt.Sprintf("%dx %s", it.Qty, it.PrintableName), money.Format(it.Qty*it.UnitPriceCents))...)

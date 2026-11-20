@@ -82,6 +82,7 @@ func parseNewOrder(r *http.Request) (db.NewOrder, error) {
 		ClientName: strings.TrimSpace(r.PostFormValue("nome")),
 		PhoneLast4: strings.TrimSpace(r.PostFormValue("telefone")),
 		Notes:      strings.TrimSpace(r.PostFormValue("obs")),
+		Address:    strings.TrimSpace(r.PostFormValue("endereco")),
 	}
 	// Balcão is in-house, so it is always eaten in. The form's consumo radio always posts a value.
 	if o.Channel == "balcao" {
@@ -89,6 +90,9 @@ func parseNewOrder(r *http.Request) (db.NewOrder, error) {
 	}
 	if o.Consume == "" {
 		o.Consume = db.ConsumeDelivery
+	}
+	if o.Consume == db.ConsumeLocal {
+		o.Address = ""
 	}
 	switch {
 	case o.Channel != "whatsapp" && o.Channel != "balcao":
@@ -104,7 +108,21 @@ func parseNewOrder(r *http.Request) (db.NewOrder, error) {
 	case len([]rune(o.Notes)) > 200:
 		return o, inputError("Observação muito longa (máx. 200).")
 	}
+	if err := checkAddress(o.Consume, o.Address); err != nil {
+		return o, err
+	}
 	return o, nil
+}
+
+// checkAddress requires a delivery address for entrega.
+func checkAddress(consume, address string) error {
+	switch {
+	case consume == db.ConsumeDelivery && address == "":
+		return inputError("Informe o endereço de entrega.")
+	case len([]rune(address)) > maxAddress:
+		return inputError("Endereço muito longo (máx. 120).")
+	}
+	return nil
 }
 
 func isDigits(s string, n int) bool {
@@ -303,11 +321,28 @@ func (s *Server) setConsume(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, err)
 		return
 	}
-	if err := s.DB.SetConsume(r.Context(), id, r.PostFormValue("consumo")); err != nil {
+	consume, address := r.PostFormValue("consumo"), strings.TrimSpace(r.PostFormValue("endereco"))
+	if consume != db.ConsumeDelivery {
+		address = ""
+	}
+	if err := checkAddress(consume, address); err != nil {
 		fail(w, r, err)
 		return
 	}
-	redirect(w, r, orderURL(id))
+	if err := s.DB.SetConsume(r.Context(), id, consume, address); err != nil {
+		fail(w, r, err)
+		return
+	}
+	if !isHX(r) {
+		http.Redirect(w, r, orderURL(id), http.StatusSeeOther)
+		return
+	}
+	o, err := s.DB.GetOrder(r.Context(), id)
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	render(w, r, http.StatusOK, ConsumeUpdate(o))
 }
 
 func (s *Server) orderMessage(w http.ResponseWriter, r *http.Request) {
@@ -384,9 +419,14 @@ func fail(w http.ResponseWriter, r *http.Request, err error) {
 		// htmx skips swaps, even out-of-band ones, on 4xx/5xx, so the toast goes out as 200.
 		w.Header().Set("HX-Reswap", "none")
 		c := Toast("error", msg)
-		if r.Header.Get("HX-Target") == "pedido-itens" {
-			// The toast sits under the open order sheet (a modal dialog), so repeat it inside the sheet.
-			c = templ.Join(c, sheetError(msg))
+		// The toast sits under an open sheet (a modal dialog), so repeat it inside the sheet.
+		switch r.Header.Get("HX-Target") {
+		case "pedido-itens":
+			c = templ.Join(c, sheetError("sheet-error", msg))
+		case "pagamento":
+			c = templ.Join(c, sheetError("pagamento-erro", msg))
+		case "acoes":
+			c = templ.Join(c, sheetError("acoes-erro", msg))
 		}
 		render(w, r, http.StatusOK, c)
 		return
@@ -426,6 +466,9 @@ func localTime(ts, layout string) string {
 }
 
 var channelLabels = map[string]string{"whatsapp": "WhatsApp", "balcao": "Balcão"}
+
+const maxAddress = 120
+
 var consumeLabels = map[string]string{db.ConsumeDelivery: "Entrega", db.ConsumeLocal: "No local"}
 
 // statusActions lists the status buttons in display order; only allowed moves are shown.
@@ -436,12 +479,4 @@ var statusActions = []struct{ To, Label, Variant string }{
 	{db.StatusClosed, "Fechar", "primary"},
 	{db.StatusOpen, "Reabrir", "secondary"},
 	{db.StatusCancelled, "Cancelar pedido", "danger"},
-}
-
-func itemCount(o db.Order) int64 {
-	var n int64
-	for _, it := range o.Items {
-		n += it.Qty
-	}
-	return n
 }

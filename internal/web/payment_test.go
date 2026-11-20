@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"regexp"
 	"strings"
@@ -67,6 +68,20 @@ func TestSetPayment(t *testing.T) {
 	page := do(h, "GET", orderURL(id), nil, false).Body.String()
 	if !strings.Contains(page, "Registre o pagamento para fechar") || !regexp.MustCompile(`<button[^>]* disabled[ >][^>]*>\s*Fechar`).MatchString(page) {
 		t.Error("editor should disable the close button and explain why")
+	}
+	if !strings.Contains(page, `id="pagamento-sheet"`) || !strings.Contains(page, "pagamento-sheet&#39;).showModal()") {
+		t.Error("payment form should live in its own sheet, opened from the order panel")
+	}
+
+	// An error from the payment sheet is repeated inside it, since the sheet covers the toast.
+	req := httptest.NewRequest("POST", orderURL(id)+"/pagamento", strings.NewReader("metodo=cheque"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("HX-Request", "true")
+	req.Header.Set("HX-Target", "pagamento")
+	sheetRec := httptest.NewRecorder()
+	h.ServeHTTP(sheetRec, req)
+	if b := sheetRec.Body.String(); !strings.Contains(b, `id="pagamento-erro"`) || strings.Count(b, "Escolha a forma") != 2 {
+		t.Errorf("sheet error: %s", b)
 	}
 
 	rec := do(h, "POST", orderURL(id)+"/pagamento", url.Values{"metodo": {"cheque"}}, true)

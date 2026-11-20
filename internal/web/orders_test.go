@@ -52,7 +52,7 @@ func do(h http.Handler, method, target string, form url.Values, hx bool) *httpte
 }
 
 func newOrderForm(name string) url.Values {
-	return url.Values{"canal": {"whatsapp"}, "consumo": {"entrega"}, "nome": {name}, "telefone": {"1234"}}
+	return url.Values{"canal": {"whatsapp"}, "consumo": {"entrega"}, "endereco": {"Rua A, 1"}, "nome": {name}, "telefone": {"1234"}}
 }
 
 func TestCreateOrderValidation(t *testing.T) {
@@ -64,6 +64,8 @@ func TestCreateOrderValidation(t *testing.T) {
 		{"no name", url.Values{"canal": {"whatsapp"}, "nome": {"  "}}},
 		{"bad channel", url.Values{"canal": {"ifood"}, "nome": {"Maria"}}},
 		{"bad consume", url.Values{"canal": {"whatsapp"}, "consumo": {"x"}, "nome": {"Maria"}}},
+		{"entrega without address", url.Values{"canal": {"whatsapp"}, "consumo": {"entrega"}, "nome": {"Maria"}}},
+		{"long address", url.Values{"canal": {"whatsapp"}, "consumo": {"entrega"}, "endereco": {strings.Repeat("a", 121)}, "nome": {"Maria"}}},
 		{"bad phone", url.Values{"canal": {"whatsapp"}, "nome": {"Maria"}, "telefone": {"12a4"}}},
 		{"long name", url.Values{"canal": {"whatsapp"}, "nome": {strings.Repeat("a", 61)}}},
 	} {
@@ -88,7 +90,7 @@ func TestOrderFlow(t *testing.T) {
 	}
 
 	rec = do(h, "POST", "/pedidos/1/itens", url.Values{"produto": {itoa(prod)}}, true)
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "R$ 15,00") || !strings.Contains(rec.Body.String(), `id="resumo"`) {
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "R$ 15,00") || !strings.Contains(rec.Body.String(), `id="acoes"`) {
 		t.Fatalf("add item: %d %s", rec.Code, rec.Body)
 	}
 	do(h, "POST", "/pedidos/1/itens", url.Values{"produto": {itoa(prod)}}, true)
@@ -181,6 +183,25 @@ func TestConsumeAndSaiu(t *testing.T) {
 	}
 	if rec := do(h, "POST", "/pedidos/1/consumo", url.Values{"consumo": {"drive"}}, false); rec.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("bad consume: %d", rec.Code)
+	}
+	// Back to entrega needs an address; switching to local kept the old one, so the form shows it again.
+	if rec := do(h, "POST", "/pedidos/1/consumo", url.Values{"consumo": {"entrega"}, "endereco": {" "}}, false); rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("entrega without address: %d", rec.Code)
+	}
+	if o, _ := s.DB.GetOrder(context.Background(), 1); o.Address != "Rua A, 1" {
+		t.Fatalf("address after local = %q", o.Address)
+	}
+	if rec := do(h, "POST", "/pedidos/1/consumo", url.Values{"consumo": {"entrega"}, "endereco": {"Rua Nova, 10"}}, false); rec.Code != http.StatusSeeOther {
+		t.Fatalf("entrega with address: %d", rec.Code)
+	}
+	if body := do(h, "GET", "/pedidos/1/imprimir", nil, false).Body.String(); !strings.Contains(body, "Rua Nova, 10") {
+		t.Error("ticket should print the delivery address")
+	}
+	// With htmx the actions sheet is swapped in place (so it stays open) and the header follows.
+	rec := do(h, "POST", "/pedidos/1/consumo", url.Values{"consumo": {"local"}}, true)
+	if b := rec.Body.String(); rec.Code != http.StatusOK || rec.Header().Get("HX-Redirect") != "" ||
+		!strings.Contains(b, `id="acoes"`) || !strings.Contains(b, `id="pedido-cabecalho" hx-swap-oob="true"`) {
+		t.Fatalf("htmx consume: %d %v %s", rec.Code, rec.Header(), b)
 	}
 	ctx := context.Background()
 	if err := s.DB.AddItem(ctx, 1, prod, 1, ""); err != nil {

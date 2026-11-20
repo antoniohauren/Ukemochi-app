@@ -63,6 +63,7 @@ CREATE TABLE orders (
   paid_at          TEXT,
   cash_given_cents INTEGER,
   notes            TEXT NOT NULL DEFAULT '',
+  address          TEXT NOT NULL DEFAULT '',  -- required for entrega (migration 2)
   created_at       TEXT NOT NULL,
   closed_at        TEXT
 );

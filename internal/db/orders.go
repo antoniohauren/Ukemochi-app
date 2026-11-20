@@ -51,6 +51,7 @@ type Order struct {
 	PaidAt         string
 	CashGivenCents int64 // 0 when not paid in cash or not given
 	Notes          string
+	Address        string // delivery address; empty for local
 	CreatedAt      string
 	ClosedAt       string
 	TotalCents     int64
@@ -93,21 +94,25 @@ type NewOrder struct {
 	ClientName string
 	PhoneLast4 string
 	Notes      string
+	Address    string
 }
 
 func (d *DB) CreateOrder(ctx context.Context, o NewOrder) (int64, error) {
-	return insert(ctx, d, `INSERT INTO orders (channel, consume, client_name, phone_last4, notes, created_at)
-		VALUES (?, ?, ?, NULLIF(?, ''), ?, ?)`, o.Channel, o.Consume, o.ClientName, o.PhoneLast4, o.Notes, now())
+	if o.Consume == ConsumeDelivery && o.Address == "" {
+		return 0, ErrInvalid
+	}
+	return insert(ctx, d, `INSERT INTO orders (channel, consume, client_name, phone_last4, notes, address, created_at)
+		VALUES (?, ?, ?, NULLIF(?, ''), ?, ?, ?)`, o.Channel, o.Consume, o.ClientName, o.PhoneLast4, o.Notes, o.Address, now())
 }
 
 const orderCols = `o.id, o.channel, o.consume, o.client_name, COALESCE(o.phone_last4, ''), o.status,
 	COALESCE(o.payment, ''), COALESCE(o.paid_at, ''), COALESCE(o.cash_given_cents, 0), o.notes,
-	o.created_at, COALESCE(o.closed_at, ''),
+	o.address, o.created_at, COALESCE(o.closed_at, ''),
 	(SELECT COALESCE(SUM(qty * unit_price_cents), 0) FROM order_items WHERE order_id = o.id)`
 
 func scanOrder(r interface{ Scan(...any) error }, o *Order) error {
 	return r.Scan(&o.ID, &o.Channel, &o.Consume, &o.ClientName, &o.PhoneLast4, &o.Status,
-		&o.Payment, &o.PaidAt, &o.CashGivenCents, &o.Notes, &o.CreatedAt, &o.ClosedAt, &o.TotalCents)
+		&o.Payment, &o.PaidAt, &o.CashGivenCents, &o.Notes, &o.Address, &o.CreatedAt, &o.ClosedAt, &o.TotalCents)
 }
 
 // GetOrder returns one order with its items and total.
@@ -241,8 +246,9 @@ func (d *DB) SetStatus(ctx context.Context, id int64, to string) error {
 }
 
 // SetConsume switches between entrega and local while the order is not yet out or finished.
-func (d *DB) SetConsume(ctx context.Context, id int64, consume string) error {
-	if consume != ConsumeDelivery && consume != ConsumeLocal {
+// Entrega needs an address; switching to local keeps the old one in case of a mis-tap.
+func (d *DB) SetConsume(ctx context.Context, id int64, consume, address string) error {
+	if consume != ConsumeDelivery && consume != ConsumeLocal || consume == ConsumeDelivery && address == "" {
 		return ErrInvalid
 	}
 	return d.tx(ctx, func(tx *sql.Tx) error {
@@ -257,7 +263,8 @@ func (d *DB) SetConsume(ctx context.Context, id int64, consume string) error {
 		if status != StatusOpen && status != StatusKitchen && status != StatusReady {
 			return ErrBadTransition
 		}
-		return execOne(ctx, tx, `UPDATE orders SET consume = ? WHERE id = ?`, consume, id)
+		return execOne(ctx, tx, `UPDATE orders SET consume = ?, address = COALESCE(NULLIF(?, ''), address) WHERE id = ?`,
+			consume, address, id)
 	})
 }
 

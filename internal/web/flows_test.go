@@ -41,7 +41,7 @@ func TestFlows(t *testing.T) {
 	}
 
 	// Flow 1: WhatsApp delivery, paid with PIX before the kitchen.
-	o1 := create(url.Values{"canal": {"whatsapp"}, "consumo": {"entrega"}, "nome": {"Maria"}, "telefone": {"1234"}})
+	o1 := create(url.Values{"canal": {"whatsapp"}, "consumo": {"entrega"}, "endereco": {"Rua A, 1"}, "nome": {"Maria"}, "telefone": {"1234"}})
 	addItem(o1)
 	addItem(o1)
 	if msg := step("GET", o1+"/mensagem/confirmacao", nil, http.StatusOK); !strings.Contains(msg, "Olá, Maria!") || !strings.Contains(msg, "2x Hot roll — R$ 30,00") {
@@ -66,7 +66,7 @@ func TestFlows(t *testing.T) {
 	status(o2, "fechado")
 
 	// Flow 3: WhatsApp order eaten in, switched to local after confirmation, paid in cash.
-	o3 := create(url.Values{"canal": {"whatsapp"}, "consumo": {"entrega"}, "nome": {"Bia"}})
+	o3 := create(url.Values{"canal": {"whatsapp"}, "consumo": {"entrega"}, "endereco": {"Rua B, 2"}, "nome": {"Bia"}})
 	addItem(o3)
 	step("GET", o3+"/mensagem/confirmacao", nil, http.StatusOK)
 	step("POST", o3+"/consumo", url.Values{"consumo": {"local"}}, http.StatusSeeOther)

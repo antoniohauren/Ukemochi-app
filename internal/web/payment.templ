@@ -5,8 +5,8 @@ import (
 	"github.com/antoniohauren/ukemochi/internal/money"
 )
 
-// PaymentPanel shows the recorded payment and, while the order is not finished, the form to record it.
-templ PaymentPanel(o db.Order) {
+// paymentSummary shows the recorded payment in the order panel, with a button that opens the payment sheet.
+templ paymentSummary(o db.Order) {
 	<section class="space-y-3 rounded-xl border border-line p-3" aria-labelledby="pagamento-titulo">
 		<h3 id="pagamento-titulo" class="font-semibold">Pagamento</h3>
 		if o.Payment == "" {
@@ -25,12 +25,38 @@ templ PaymentPanel(o db.Order) {
 			}
 		}
 		if canPay(o) {
+			<div class="grid">
+				@Button("secondary", templ.Attributes{"type": "button", "onclick": templ.JSUnsafeFuncCall("this.closest('dialog')?.close(); document.getElementById('pagamento-sheet').showModal()")}) {
+					if o.Payment == "" {
+						Registrar pagamento
+					} else {
+						Alterar pagamento
+					}
+				}
+			</div>
+		}
+	</section>
+}
+
+// PaymentPanel is the body of the payment sheet: the total and the form to record the payment.
+// oob marks it for an htmx out-of-band swap when the order's items change.
+templ PaymentPanel(o db.Order, oob bool) {
+	<div
+		id="pagamento"
+		if oob {
+			hx-swap-oob="true"
+		}
+		class="space-y-3"
+	>
+		<p id="pagamento-erro" role="alert" class="empty:hidden font-medium text-danger"></p>
+		<p class="flex justify-between text-xl font-bold"><span>Total</span><span class="tabular-nums">{ money.Format(o.TotalCents) }</span></p>
+		if canPay(o) {
 			<form
 				method="post"
 				action={ orderURL(o.ID) + "/pagamento" }
 				hx-post={ orderURL(o.ID) + "/pagamento" }
-				hx-target="#pedido-itens"
-				hx-on::after-request="document.getElementById('sheet-error')?.scrollIntoView({block: 'nearest'})"
+				hx-target="#pagamento"
+				hx-on::after-request="document.getElementById('pagamento-erro')?.scrollIntoView({block: 'nearest'})"
 				novalidate
 				class="group space-y-3"
 			>
@@ -46,8 +72,8 @@ templ PaymentPanel(o db.Order) {
 					</div>
 				</fieldset>
 				// Shown only while Dinheiro is checked.
-				<div class="hidden items-end gap-3 group-has-[#pagamento-dinheiro:checked]:flex">
-					<div class="min-w-0 flex-1">
+				<div class="hidden space-y-2 group-has-[#pagamento-dinheiro:checked]:block">
+					<div>
 						@MoneyInput("valor", "Valor recebido (opcional)", cashValue(o), templ.Attributes{
 							"hx-get":     orderURL(o.ID) + "/troco",
 							"hx-trigger": "input changed delay:300ms",
@@ -56,12 +82,10 @@ templ PaymentPanel(o db.Order) {
 							"hx-sync":    "this:replace",
 						})
 					</div>
-					<div class="flex min-h-12 w-28 shrink-0 items-center justify-end">
-						@ChangeLine(changeText(o.TotalCents, cashValue(o)))
-					</div>
+					@ChangeLine(changeText(o.TotalCents, cashValue(o)))
 				</div>
 				<div class="grid">
-					@Button("secondary", templ.Attributes{"type": "submit"}) {
+					@Button("primary", templ.Attributes{"type": "submit"}) {
 						if o.Payment == "" {
 							Registrar pagamento
 						} else {
@@ -71,16 +95,14 @@ templ PaymentPanel(o db.Order) {
 				</div>
 			</form>
 		}
-	</section>
+	</div>
 }
 
-// ChangeLine is the live change text beside the cash field, swapped by GET /pedidos/{id}/troco.
+// ChangeLine is the live change line under the cash field, swapped by GET /pedidos/{id}/troco.
 templ ChangeLine(label, amount string, ok bool) {
-	<p id="troco" aria-live="polite" class={ "min-h-6 text-lg font-semibold tabular-nums", templ.KV("text-ok", ok), templ.KV("text-danger", !ok) }>
-		if label != "" {
-			<span class="sr-only">{ label }: </span>
-		}
-		{ amount }
+	<p id="troco" aria-live="polite" class="flex min-h-8 items-baseline justify-between text-lg font-semibold tabular-nums">
+		<span class="text-ink-muted">{ label }</span>
+		<span class={ templ.KV("text-ok", ok), templ.KV("text-danger", !ok) }>{ amount }</span>
 	</p>
 }
 

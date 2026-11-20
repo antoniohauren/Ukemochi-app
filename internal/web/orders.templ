@@ -71,7 +71,7 @@ templ NewOrderPage(o db.NewOrder, errMsg string) {
 				<a href="/" class={ buttonClass("ghost") } aria-label="Voltar">←</a>
 				<h1 class="text-xl font-bold">Novo pedido</h1>
 			</header>
-			<form method="post" action="/pedidos" class="space-y-5">
+			<form method="post" action="/pedidos" class="group space-y-5">
 				<fieldset>
 					<legend class="mb-1 text-sm font-medium text-ink-muted">Canal</legend>
 					<div class="grid grid-cols-2 gap-2">
@@ -89,7 +89,7 @@ templ NewOrderPage(o db.NewOrder, errMsg string) {
 					<legend class="mb-1 text-sm font-medium text-ink-muted">Consumo</legend>
 					<div class="grid grid-cols-2 gap-2">
 						<label class={ optionClass() }>
-							<input type="radio" name="consumo" value="entrega" class="sr-only" checked?={ o.Consume != db.ConsumeLocal }/>
+							<input type="radio" name="consumo" value="entrega" id="consumo-entrega" class="sr-only" checked?={ o.Consume != db.ConsumeLocal }/>
 							Entrega
 						</label>
 						<label class={ optionClass() }>
@@ -98,6 +98,11 @@ templ NewOrderPage(o db.NewOrder, errMsg string) {
 						</label>
 					</div>
 				</fieldset>
+				// Shown only while Entrega is checked; the server requires it then.
+				<label class="hidden group-has-[#consumo-entrega:checked]:block">
+					<span class="mb-1 block text-sm font-medium text-ink-muted">Endereço de entrega</span>
+					<input type="text" name="endereco" value={ o.Address } maxlength="120" autocomplete="off" class={ fieldClass() }/>
+				</label>
 				<label class="block">
 					<span class="mb-1 block text-sm font-medium text-ink-muted">Nome do cliente</span>
 					<input type="text" name="nome" value={ o.ClientName } required maxlength="60" autocomplete="off" autocapitalize="words" class={ fieldClass() }/>
@@ -125,27 +130,19 @@ templ NewOrderPage(o db.NewOrder, errMsg string) {
 
 templ OrderEditorPage(o db.Order, menu []db.Category) {
 	@Layout(fmt.Sprintf("Pedido #%d · Ukemochi", o.ID)) {
-		<main class="mx-auto max-w-lg pb-28">
-			<header class="sticky top-0 z-10 border-b border-line bg-surface/95 p-4 backdrop-blur">
-				<div class="flex items-center gap-2">
-					<a href="/" class={ buttonClass("ghost") } aria-label="Voltar">←</a>
-					<div class="min-w-0 flex-1">
-						<h1 class="truncate text-lg font-bold">#{ strconv.FormatInt(o.ID, 10) } { o.ClientName }</h1>
-						<p class="text-sm text-ink-muted">
-							{ channelLabels[o.Channel] } · { consumeLabels[o.Consume] }
-							if o.PhoneLast4 != "" {
-								· …{ o.PhoneLast4 }
-							}
-						</p>
-					</div>
-					@StatusChip(o.Status)
-				</div>
-				if o.Notes != "" {
-					<p class="mt-2 text-sm">Obs: { o.Notes }</p>
+		<main class="mx-auto max-w-lg pb-40">
+			@orderHeader(o, false)
+			<div id="pedido-itens" class="p-4">
+				@orderItems(o)
+			</div>
+			@BottomSheet("acoes-sheet", fmt.Sprintf("Pedido #%d", o.ID)) {
+				@orderActions(o, false)
+			}
+			<div class="fixed inset-x-0 bottom-0 z-20 mx-auto grid max-w-lg gap-2 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+				@Button("secondary", templ.Attributes{"type": "button", "onclick": templ.JSUnsafeFuncCall("document.getElementById('acoes-sheet').showModal()")}) {
+					Ações
 				}
-			</header>
-			if o.Status == db.StatusOpen {
-				<div class="grid p-4">
+				if o.Status == db.StatusOpen {
 					<a
 						href={ templ.SafeURL(addItemURL(o.ID, "", 0)) }
 						hx-get={ addItemURL(o.ID, "", 0) }
@@ -153,26 +150,60 @@ templ OrderEditorPage(o db.Order, menu []db.Category) {
 						onclick="document.getElementById('add-sheet').showModal()"
 						class={ buttonClass("primary") }
 					>+ Adicionar item</a>
-				</div>
-				@orderSummaryBar(o, false)
-				@BottomSheet("pedido-sheet", fmt.Sprintf("Pedido #%d", o.ID)) {
-					<div id="pedido-itens">
-						@OrderPanel(o)
-					</div>
 				}
+			</div>
+			if o.Status == db.StatusOpen {
 				@BottomSheet("add-sheet", "Adicionar item") {
 					<div id="add-step" hx-on:item-added="this.closest('dialog').close()">
 						@AddCategoryStep(o.ID, menu)
 					</div>
 				}
-			} else {
-				<div id="pedido-itens" class="p-4">
-					@OrderPanel(o)
-				</div>
+			}
+			if canPay(o) {
+				@BottomSheet("pagamento-sheet", "Pagamento") {
+					@PaymentPanel(o, false)
+				}
 			}
 		</main>
 		@copyScript()
 	}
+}
+
+// orderHeader shows who the order is for and its status. oob marks it for an htmx out-of-band swap.
+templ orderHeader(o db.Order, oob bool) {
+	<header
+		id="pedido-cabecalho"
+		if oob {
+			hx-swap-oob="true"
+		}
+		class="sticky top-0 z-10 border-b border-line bg-surface/95 p-4 backdrop-blur"
+	>
+		<div class="flex items-center gap-2">
+			<a href="/" class={ buttonClass("ghost") } aria-label="Voltar">←</a>
+			<div class="min-w-0 flex-1">
+				<h1 class="truncate text-lg font-bold">#{ strconv.FormatInt(o.ID, 10) } { o.ClientName }</h1>
+				<p class="text-sm text-ink-muted">
+					{ channelLabels[o.Channel] } · { consumeLabels[o.Consume] }
+					if o.PhoneLast4 != "" {
+						· …{ o.PhoneLast4 }
+					}
+				</p>
+			</div>
+			@StatusChip(o.Status)
+		</div>
+		if o.Consume == db.ConsumeDelivery && o.Address != "" {
+			<p class="mt-2 text-sm">Endereço: { o.Address }</p>
+		}
+		if o.Notes != "" {
+			<p class="mt-2 text-sm">Obs: { o.Notes }</p>
+		}
+	</header>
+}
+
+// ConsumeUpdate answers an htmx consume change: the actions sheet, which stays open, and the header.
+templ ConsumeUpdate(o db.Order) {
+	@orderActions(o, false)
+	@orderHeader(o, true)
 }
 
 // copyScript makes every [data-copy] button copy the textarea it names.
@@ -198,33 +229,19 @@ templ copyScript() {
 		</script>
 }
 
-// orderSummaryBar is the bar that opens the order sheet. oob marks it for an htmx out-of-band swap.
-templ orderSummaryBar(o db.Order, oob bool) {
-	<div
-		id="resumo"
-		if oob {
-			hx-swap-oob="true"
-		}
-		class="fixed inset-x-0 bottom-0 z-20 mx-auto grid max-w-lg p-4 pb-[max(1rem,env(safe-area-inset-bottom))]"
-	>
-		@Button("primary", templ.Attributes{"type": "button", "onclick": templ.JSUnsafeFuncCall("document.getElementById('pedido-sheet').showModal()")}) {
-			<span>Ver pedido · { strconv.FormatInt(itemCount(o), 10) } itens</span>
-			<span class="tabular-nums">{ money.Format(o.TotalCents) }</span>
-		}
-	</div>
-}
-
-// ItemsUpdate answers an htmx item edit: the new panel plus the summary bar and a toast out of band.
+// ItemsUpdate answers an htmx item edit: the new item list, plus the actions and payment sheets
+// (their texts and totals follow the items) and a toast out of band.
 templ ItemsUpdate(o db.Order, toast string) {
-	@OrderPanel(o)
-	@orderSummaryBar(o, true)
+	@orderItems(o)
+	@orderActions(o, true)
+	@PaymentPanel(o, true)
 	if toast != "" {
 		@Toast("ok", toast)
 	}
 }
 
-// OrderPanel shows the items, total and actions of an order.
-templ OrderPanel(o db.Order) {
+// orderItems shows the items and total of an order, with quantity buttons while it is open.
+templ orderItems(o db.Order) {
 	{{ editable := o.Status == db.StatusOpen }}
 	<div class="space-y-4">
 		<p id="sheet-error" role="alert" class="empty:hidden font-medium text-danger"></p>
@@ -239,7 +256,7 @@ templ OrderPanel(o db.Order) {
 							if !editable {
 								{ strconv.FormatInt(it.Qty, 10) }x
 							}
-							{ it.NameSnapshot }
+							{ it.PrintableName }
 						</p>
 						if it.Note != "" {
 							<p class="text-sm text-ink-muted">{ it.Note }</p>
@@ -258,6 +275,42 @@ templ OrderPanel(o db.Order) {
 			}
 		</ul>
 		<p class="flex justify-between text-xl font-bold"><span>Total</span><span class="tabular-nums">{ money.Format(o.TotalCents) }</span></p>
+	</div>
+}
+
+// orderActions is the body of the actions sheet: copy messages, consume type, payment, status and print.
+// oob marks it for an htmx out-of-band swap.
+templ orderActions(o db.Order, oob bool) {
+	<div
+		id="acoes"
+		if oob {
+			hx-swap-oob="true"
+		}
+		class="space-y-4"
+	>
+		<p id="acoes-erro" role="alert" class="empty:hidden font-medium text-danger"></p>
+		if o.Status == db.StatusOpen || o.Status == db.StatusKitchen || o.Status == db.StatusReady {
+			<form
+				method="post"
+				action={ orderURL(o.ID) + "/consumo" }
+				hx-post={ orderURL(o.ID) + "/consumo" }
+				hx-target="#acoes"
+				hx-swap="outerHTML"
+				class="grid grid-cols-2 gap-2"
+			>
+				<label class="col-span-2 block">
+					<span class="mb-1 block text-sm font-medium text-ink-muted">Endereço (para entrega)</span>
+					<input type="text" name="endereco" value={ o.Address } maxlength="120" autocomplete="off" class={ fieldClass() }/>
+				</label>
+				@Button(selectedVariant(o.Consume == db.ConsumeDelivery), templ.Attributes{"type": "submit", "name": "consumo", "value": db.ConsumeDelivery}) {
+					Entrega
+				}
+				@Button(selectedVariant(o.Consume == db.ConsumeLocal), templ.Attributes{"type": "submit", "name": "consumo", "value": db.ConsumeLocal}) {
+					Consumir no local
+				}
+			</form>
+		}
+		@paymentSummary(o)
 		if msgs := copyMessages(o); len(msgs) > 0 {
 			<div class="grid gap-2">
 				for _, m := range msgs {
@@ -268,49 +321,49 @@ templ OrderPanel(o db.Order) {
 				}
 			</div>
 		}
-		if o.Status == db.StatusOpen || o.Status == db.StatusKitchen || o.Status == db.StatusReady {
-			<form method="post" action={ orderURL(o.ID) + "/consumo" } class="grid grid-cols-2 gap-2">
-				@Button(selectedVariant(o.Consume == db.ConsumeDelivery), templ.Attributes{"type": "submit", "name": "consumo", "value": db.ConsumeDelivery}) {
-					Entrega
-				}
-				@Button(selectedVariant(o.Consume == db.ConsumeLocal), templ.Attributes{"type": "submit", "name": "consumo", "value": db.ConsumeLocal}) {
-					Consumir no local
-				}
-			</form>
-		}
-		@PaymentPanel(o)
-		<div class="grid gap-2">
+		// The next step (primary) shares a line with print; reopen and cancel go below.
+		<div class="grid auto-cols-fr grid-flow-col items-start gap-2">
 			for _, a := range statusActions {
-				if db.CanTransition(o.Status, a.To, o.Consume) {
-					{{ unpaid := a.To == db.StatusClosed && o.Payment == "" }}
-					<form
-						method="post"
-						action={ orderURL(o.ID) + "/status" }
-						class="grid"
-						if a.To == db.StatusCancelled {
-							onsubmit="return confirm('Cancelar este pedido?')"
-						}
-					>
-						<input type="hidden" name="para" value={ a.To }/>
-						@Button(a.Variant, templ.Attributes{"type": "submit", "disabled": unpaid}) {
-							{ a.Label }
-						}
-						if unpaid {
-							<p class="mt-1 text-center text-sm text-ink-muted">Registre o pagamento para fechar.</p>
-						}
-					</form>
+				if a.Variant == "primary" && db.CanTransition(o.Status, a.To, o.Consume) {
+					@statusForm(o, a.To, a.Label, a.Variant)
 				}
 			}
-			@LinkButton("ghost", orderURL(o.ID)+"/imprimir") {
+			@LinkButton("secondary", orderURL(o.ID)+"/imprimir") {
 				Imprimir ticket
 			}
 		</div>
+		for _, a := range statusActions {
+			if a.Variant != "primary" && db.CanTransition(o.Status, a.To, o.Consume) {
+				@statusForm(o, a.To, a.Label, a.Variant)
+			}
+		}
 	</div>
 }
 
-// sheetError fills the error line of OrderPanel out of band.
-templ sheetError(msg string) {
-	<p id="sheet-error" hx-swap-oob="true" role="alert" class="empty:hidden font-medium text-danger">{ msg }</p>
+// statusForm is one status button. Fechar stays disabled until the order is paid.
+templ statusForm(o db.Order, to, label, variant string) {
+	{{ unpaid := to == db.StatusClosed && o.Payment == "" }}
+	<form
+		method="post"
+		action={ orderURL(o.ID) + "/status" }
+		class="grid"
+		if to == db.StatusCancelled {
+			onsubmit="return confirm('Cancelar este pedido?')"
+		}
+	>
+		<input type="hidden" name="para" value={ to }/>
+		@Button(variant, templ.Attributes{"type": "submit", "disabled": unpaid}) {
+			{ label }
+		}
+		if unpaid {
+			<p class="mt-1 text-center text-sm text-ink-muted">Registre o pagamento para fechar.</p>
+		}
+	</form>
+}
+
+// sheetError fills the error line with the given id inside an open sheet, out of band.
+templ sheetError(id, msg string) {
+	<p id={ id } hx-swap-oob="true" role="alert" class="empty:hidden font-medium text-danger">{ msg }</p>
 }
 
 templ ErrorPage(msg string) {

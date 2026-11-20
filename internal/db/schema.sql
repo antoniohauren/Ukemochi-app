@@ -54,3 +54,7 @@ CREATE TABLE order_items (
 
 CREATE INDEX orders_created_at ON orders(created_at);
 CREATE INDEX order_items_order ON order_items(order_id);
+
+-- migrate: 2
+-- Delivery address, required by the app when consume is entrega.
+ALTER TABLE orders ADD COLUMN address TEXT NOT NULL DEFAULT '';

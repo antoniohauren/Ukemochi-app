@@ -64,7 +64,7 @@ func (s *Server) change(w http.ResponseWriter, r *http.Request) {
 }
 
 // changeText describes the change for a typed cash amount; empty input gives an empty line.
-// The amount is shown in color (ok green, short red); label is for screen readers only.
+// The label sits on the left and the amount on the right, in color (ok green, short red).
 func changeText(total int64, typed string) (label, amount string, ok bool) {
 	if strings.TrimSpace(typed) == "" {
 		return "", "", true
