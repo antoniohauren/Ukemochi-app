@@ -17,6 +17,7 @@ type Server struct {
 // Routes registers every feature's routes on mux.
 func (s *Server) Routes(mux *http.ServeMux) {
 	s.registerOrders(mux)
+	s.registerPrint(mux)
 	s.registerDev(mux)
 	s.registerAuth(mux)
 }

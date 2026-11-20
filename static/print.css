@@ -1,0 +1,11 @@
+/* 58mm ticket. About 48mm is printable; 2.4mm monospace (char width ~0.6em) fits 32 characters with slack. */
+@page { size: 58mm auto; margin: 0; }
+body { width: 48mm; margin: 0 auto; font: 2.4mm/1.2 monospace; color: #000; background: #fff; }
+pre { font: inherit; margin: 0; white-space: pre; }
+
+.no-print { display: flex; flex-direction: column; gap: 12px; margin: 24px 0; font: 16px sans-serif; }
+.no-print button, .no-print a {
+  display: block; padding: 14px; border: 1px solid #999; border-radius: 12px;
+  background: #fff; color: #000; font: inherit; text-align: center; text-decoration: none;
+}
+@media print { .no-print { display: none; } }
