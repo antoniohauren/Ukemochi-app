@@ -11,7 +11,7 @@ TAILWIND_ARCH := $(if $(filter arm64 aarch64,$(UNAME_M)),arm64,x64)
 TAILWIND_ASSET := tailwindcss-$(TAILWIND_OS)-$(TAILWIND_ARCH)
 TAILWIND_URL := https://github.com/tailwindlabs/tailwindcss/releases/download/$(TAILWIND_VERSION)
 
-.PHONY: gen run test seed build-arm64
+.PHONY: gen run test seed build-arm64 build-amd64 build-windows
 
 # Exports the variables in .env, if present, for run and seed. See .env.example.
 DOTENV := set -a; [ ! -f .env ] || . ./.env; set +a;
@@ -44,3 +44,9 @@ seed:
 
 build-arm64: gen
 	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o bin/ukemochi-arm64 ./cmd/ukemochi
+
+build-windows: gen
+	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o bin/ukemochi.exe ./cmd/ukemochi
+
+build-amd64: gen
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o bin/ukemochi-amd64 ./cmd/ukemochi

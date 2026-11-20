@@ -40,6 +40,8 @@ To change the port, set `ADDR` in `.env`, e.g. `ADDR=127.0.0.1:3000`. Use `ADDR=
 | `make test`        | Generate, then `go test ./...`            |
 | `make seed`        | Load the sample menu                      |
 | `make build-arm64` | Static build for the Raspberry Pi         |
+| `make build-amd64` | Single `bin/ukemochi-amd64` for Linux x64 |
+| `make build-windows` | Single `bin/ukemochi.exe` for Windows   |
 
 ### Environment variables
 

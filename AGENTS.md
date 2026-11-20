@@ -12,6 +12,8 @@ Read `docs/` before larger changes: `architecture.md` (layout, routes, screens),
 | `make run`         | `gen`, then `go run ./cmd/ukemochi`                                 |
 | `make test`        | `gen`, then `go test ./...`                                         |
 | `make build-arm64` | Static `CGO_ENABLED=0` build for the Raspberry Pi                   |
+| `make build-amd64` | Static `CGO_ENABLED=0` build, single `bin/ukemochi-amd64` for Linux x64 |
+| `make build-windows` | Static `CGO_ENABLED=0` build, single `bin/ukemochi.exe` for Windows x64 |
 
 Env: `ADDR` (default `127.0.0.1:8080`), `DB_PATH` (default `ukemochi.db`).
 
