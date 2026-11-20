@@ -1,0 +1,156 @@
+package web
+
+import (
+	"fmt"
+	"strconv"
+	"strings"
+
+	"github.com/antoniohauren/ukemochi/internal/db"
+	"github.com/antoniohauren/ukemochi/internal/money"
+)
+
+func smallField() string {
+	return "min-h-12 w-full rounded-xl border border-line bg-card px-3 outline-none focus:border-brand focus:ring-2 focus:ring-brand-soft"
+}
+
+templ menuInput(name, label, value string, attrs templ.Attributes) {
+	<label class="block">
+		<span class="mb-1 block text-xs font-medium text-ink-muted">{ label }</span>
+		<input type="text" name={ name } value={ value } autocomplete="off" class={ smallField() } { attrs... }/>
+	</label>
+}
+
+templ activeBox(active bool) {
+	<label class="flex min-h-12 items-center gap-2">
+		<input type="checkbox" name="ativo" value="1" checked?={ active } class="size-5 accent-brand"/>
+		Ativo
+	</label>
+}
+
+templ MenuPage(menu []db.Category, errMsg string) {
+	@Layout("Cardápio · Ukemochi") {
+		<main class="mx-auto max-w-lg space-y-4 p-4 pb-16">
+			<header class="flex items-center gap-2">
+				<a href="/" class={ buttonClass("ghost") } aria-label="Pedidos">←</a>
+				<h1 class="flex-1 text-xl font-bold">Cardápio</h1>
+				<a href="/admin/relatorio" class="text-sm font-medium text-ink-muted underline">Relatório</a>
+			</header>
+			if errMsg != "" {
+				<p role="alert" class="rounded-xl bg-brand-soft p-3 font-medium text-danger">{ errMsg }</p>
+			}
+			@Card() {
+				<form method="post" action={ menuURL + "/categorias" } class="grid grid-cols-[1fr_5rem] items-end gap-2">
+					<h2 class="col-span-2 font-semibold">Nova categoria</h2>
+					@menuInput("nome", "Nome", "", templ.Attributes{"required": true, "maxlength": "40"})
+					@menuInput("posicao", "Ordem", "0", templ.Attributes{"inputmode": "numeric"})
+					<div class="col-span-2 grid">
+						@Button("primary", templ.Attributes{"type": "submit"}) {
+							Adicionar categoria
+						}
+					</div>
+				</form>
+			}
+			for _, c := range menu {
+				<section id={ fmt.Sprintf("cat-%d", c.ID) } class="space-y-2">
+					@Card() {
+						<form method="post" action={ fmt.Sprintf("%s/categorias/%d", menuURL, c.ID) } class="grid grid-cols-[1fr_5rem_auto] items-end gap-2">
+							@menuInput("nome", "Categoria", c.Name, templ.Attributes{"required": true, "maxlength": "40"})
+							@menuInput("posicao", "Ordem", strconv.FormatInt(c.Position, 10), templ.Attributes{"inputmode": "numeric"})
+							@Button("secondary", templ.Attributes{"type": "submit"}) {
+								Salvar
+							}
+						</form>
+						<div class="mt-3 space-y-2">
+							for _, it := range c.Items {
+								@menuItem(menu, it)
+							}
+							<details class="rounded-xl border border-dashed border-line p-3">
+								<summary class="min-h-8 cursor-pointer font-semibold">+ Novo item</summary>
+								<form method="post" action={ menuURL + "/itens" } class="mt-2 space-y-2">
+									<input type="hidden" name="categoria" value={ strconv.FormatInt(c.ID, 10) }/>
+									@menuInput("nome", "Nome", "", templ.Attributes{"required": true, "maxlength": "60"})
+									@menuInput("descricao", "Descrição (opcional)", "", templ.Attributes{"maxlength": "120"})
+									<div class="grid">
+										@Button("primary", templ.Attributes{"type": "submit"}) {
+											Adicionar item
+										}
+									</div>
+								</form>
+							</details>
+						</div>
+					}
+				</section>
+			}
+		</main>
+	}
+}
+
+templ menuItem(menu []db.Category, it db.Item) {
+	<details id={ fmt.Sprintf("item-%d", it.ID) } class={ "rounded-xl border border-line p-3", templ.KV("opacity-60", !it.Active) }>
+		<summary class="flex min-h-8 cursor-pointer items-center justify-between gap-2">
+			<span class="font-semibold">
+				{ it.Name }
+				if !it.Active {
+					<span class="text-sm font-normal text-ink-muted">(inativo)</span>
+				}
+			</span>
+			<span class="text-sm text-ink-muted">{ strconv.Itoa(len(it.Products)) } produto(s)</span>
+		</summary>
+		<form method="post" action={ fmt.Sprintf("%s/itens/%d", menuURL, it.ID) } class="mt-3 space-y-2">
+			<label class="block">
+				<span class="mb-1 block text-xs font-medium text-ink-muted">Categoria</span>
+				<select name="categoria" class={ smallField() }>
+					for _, c := range menu {
+						<option value={ strconv.FormatInt(c.ID, 10) } selected?={ c.ID == it.CategoryID }>{ c.Name }</option>
+					}
+				</select>
+			</label>
+			@menuInput("nome", "Nome", it.Name, templ.Attributes{"required": true, "maxlength": "60"})
+			@menuInput("descricao", "Descrição", it.Description, templ.Attributes{"maxlength": "120"})
+			<div class="flex items-center justify-between">
+				@activeBox(it.Active)
+				@Button("secondary", templ.Attributes{"type": "submit"}) {
+					Salvar item
+				}
+			</div>
+		</form>
+		<div class="mt-3 space-y-3 border-t border-line pt-3">
+			for _, p := range it.Products {
+				@productForm(fmt.Sprintf("%s/produtos/%d", menuURL, p.ID), 0, p, "Salvar")
+			}
+			<p class="text-sm font-semibold">Novo produto</p>
+			@productForm(menuURL+"/produtos", it.ID, db.Product{}, "Adicionar produto")
+		</div>
+	</details>
+}
+
+// productForm edits p, or creates a product under itemID when itemID is set.
+templ productForm(action string, itemID int64, p db.Product, submit string) {
+	<form method="post" action={ action } class={ "grid grid-cols-2 gap-2", templ.KV("opacity-60", itemID == 0 && !p.Active) }>
+		if itemID != 0 {
+			<input type="hidden" name="item" value={ strconv.FormatInt(itemID, 10) }/>
+		}
+		@menuInput("variante", "Variante", p.Variant, templ.Attributes{"maxlength": "40", "placeholder": "Zero"})
+		@menuInput("tamanho", "Tamanho", p.Size, templ.Attributes{"maxlength": "40", "placeholder": "Lata"})
+		@menuInput("impresso", "Nome impresso", p.PrintableName, templ.Attributes{"required": true, "maxlength": strconv.Itoa(ticketWidth), "placeholder": "COCA ZERO LT"})
+		@MoneyInput("preco", "Preço", priceValue(itemID, p), templ.Attributes{"required": true})
+		<div class="col-span-2 flex items-center justify-between">
+			if itemID == 0 {
+				@activeBox(p.Active)
+			} else {
+				<span></span>
+			}
+			@Button(selectedVariant(itemID != 0), templ.Attributes{"type": "submit"}) {
+				{ submit }
+			}
+		</div>
+	</form>
+}
+
+// priceValue shows an existing price without "R$ ", which MoneyInput already prints.
+func priceValue(itemID int64, p db.Product) string {
+	if itemID != 0 {
+		return ""
+	}
+	return strings.TrimPrefix(money.Format(p.PriceCents), "R$ ")
+}
