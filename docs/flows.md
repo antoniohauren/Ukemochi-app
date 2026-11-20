@@ -14,6 +14,8 @@ aberto -> cozinha -> pronto -> saiu -> fechado
    \         \          \                ^
     \         \          +---------------+   (consume = local)
      +---------+----------> cancelado
+
+fechado, cancelado -> aberto   (reopen)
 ```
 
 | Status      | Meaning                                  |
@@ -27,7 +29,8 @@ aberto -> cozinha -> pronto -> saiu -> fechado
 
 ### Rules
 
-- Payment is independent of status. An order can be marked paid at any time.
+- Payment is independent of status. An order can be marked paid at any status except `fechado` and `cancelado`.
+- A `fechado` or `cancelado` order can be reopened at any time. It goes back to `aberto`, keeps its payment and leaves the daily report until it is closed again.
 - An order can't be closed while it is unpaid.
 - `saiu` exists only when `consume = entrega`.
 - Items can be edited only while the status is `aberto`. Reprinting the ticket is allowed at any status.

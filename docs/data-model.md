@@ -71,7 +71,7 @@ CREATE TABLE order_items (
   id               INTEGER PRIMARY KEY,
   order_id         INTEGER NOT NULL REFERENCES orders(id),
   product_id       INTEGER NOT NULL REFERENCES products(id),
-  qty              INTEGER NOT NULL CHECK (qty > 0),
+  qty              INTEGER NOT NULL CHECK (qty BETWEEN 1 AND 999),
   unit_price_cents INTEGER NOT NULL,
   name_snapshot    TEXT NOT NULL,
   note             TEXT NOT NULL DEFAULT ''

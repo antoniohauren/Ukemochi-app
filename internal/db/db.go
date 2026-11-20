@@ -2,6 +2,7 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 
 	_ "modernc.org/sqlite"
@@ -22,9 +23,10 @@ func Open(path string) (*DB, error) {
 	}
 	// One connection serializes writes, so concurrent requests never hit SQLITE_BUSY.
 	sqlDB.SetMaxOpenConns(1)
-	if err := sqlDB.Ping(); err != nil {
+	d := &DB{sqlDB}
+	if err := d.Migrate(context.Background()); err != nil {
 		sqlDB.Close()
 		return nil, err
 	}
-	return &DB{sqlDB}, nil
+	return d, nil
 }
