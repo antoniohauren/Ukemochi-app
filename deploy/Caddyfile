@@ -1,0 +1,9 @@
+# Caddy built with: xcaddy build --with github.com/caddy-dns/cloudflare
+# Replace the host name. CLOUDFLARE_API_TOKEN needs Zone:DNS:Edit for the zone.
+pedidos.example.com {
+	tls {
+		dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+	}
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:8080
+}

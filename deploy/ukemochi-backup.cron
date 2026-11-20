@@ -1,0 +1,5 @@
+# Install: cp deploy/ukemochi-backup.cron /etc/cron.d/ukemochi-backup (needs the sqlite3 CLI).
+# Daily online backup at 04:00, safe while the app runs. Keeps 30 days.
+# /var/backups/ukemochi must exist and be writable by the ukemochi user.
+# Copy the backups off this machine regularly: a dead disk loses every order.
+0 4 * * * ukemochi sqlite3 -cmd ".timeout 5000" /var/lib/ukemochi/ukemochi.db ".backup '/var/backups/ukemochi/ukemochi-$(date +\%F).db'" && find /var/backups/ukemochi -name 'ukemochi-*.db' -mtime +30 -delete

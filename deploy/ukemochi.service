@@ -1,0 +1,22 @@
+# Install: cp deploy/ukemochi.service /etc/systemd/system/ && systemctl enable --now ukemochi
+# Needs: user "ukemochi", /var/lib/ukemochi owned by it, /etc/ukemochi.env (mode 0600) with
+# ADDR, DB_PATH, ADMIN_PIN, SESSION_KEY (32+ random chars, e.g. `openssl rand -hex 32`), TZ.
+[Unit]
+Description=Ukemochi
+After=network.target
+
+[Service]
+User=ukemochi
+WorkingDirectory=/var/lib/ukemochi
+EnvironmentFile=/etc/ukemochi.env
+ExecStart=/usr/local/bin/ukemochi
+Restart=on-failure
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/ukemochi
+
+[Install]
+WantedBy=multi-user.target
