@@ -1,0 +1,74 @@
+package web
+
+import (
+	"strconv"
+	"time"
+
+	"github.com/antoniohauren/ukemochi/internal/db"
+	"github.com/antoniohauren/ukemochi/internal/money"
+)
+
+templ ReportPage(day time.Time, rep db.Report, summary string) {
+	@Layout("Relatório · Ukemochi") {
+		<main class="mx-auto max-w-lg space-y-4 p-4">
+			<header class="flex items-center gap-2">
+				<a href="/" class={ buttonClass("ghost") } aria-label="Voltar">←</a>
+				<h1 class="flex-1 text-xl font-bold">Relatório</h1>
+				<a href="/admin/cardapio" class="text-sm font-medium text-ink-muted underline">Cardápio</a>
+			</header>
+			<form method="get" action="/admin/relatorio" class="flex items-center gap-2">
+				<a href={ templ.SafeURL("/admin/relatorio?dia=" + day.AddDate(0, 0, -1).Format(dayLayout)) } class={ buttonClass("secondary") + " w-12 px-0" } aria-label="Dia anterior">‹</a>
+				<input type="date" name="dia" value={ day.Format(dayLayout) } onchange="this.form.submit()" class={ fieldClass() + " flex-1" } aria-label="Dia"/>
+				<a href={ templ.SafeURL("/admin/relatorio?dia=" + day.AddDate(0, 0, 1).Format(dayLayout)) } class={ buttonClass("secondary") + " w-12 px-0" } aria-label="Próximo dia">›</a>
+				<noscript>
+					@Button("secondary", templ.Attributes{"type": "submit"}) {
+						Ver
+					}
+				</noscript>
+			</form>
+			@Card() {
+				<p class="text-sm text-ink-muted">{ day.Format("02/01/2006") } · pedidos fechados</p>
+				<p class="mt-1 text-3xl font-bold tabular-nums">{ money.Format(rep.TotalCents) }</p>
+				<p class="text-ink-muted">{ strconv.FormatInt(rep.Orders, 10) } pedidos</p>
+			}
+			if rep.Orders == 0 {
+				<p class="py-4 text-center text-ink-muted">Nenhum pedido fechado neste dia.</p>
+			} else {
+				@reportTable("Por pagamento", rep.ByPayment, paymentLabels)
+				@reportTable("Por canal", rep.ByChannel, channelLabels)
+				@Card() {
+					<h2 class="mb-2 font-semibold">Mais vendidos</h2>
+					<ul class="divide-y divide-line">
+						for _, it := range rep.TopItems {
+							<li class="flex justify-between gap-3 py-2">
+								<span class="min-w-0">{ strconv.FormatInt(it.Qty, 10) }x { it.Name }</span>
+								<span class="shrink-0 tabular-nums text-ink-muted">{ money.Format(it.TotalCents) }</span>
+							</li>
+						}
+					</ul>
+				}
+				<div class="grid gap-2">
+					@Button("primary", templ.Attributes{"type": "button", "data-copy": "resumo-texto"}) {
+						Copiar resumo
+					}
+					<textarea id="resumo-texto" readonly rows="12" class="hidden w-full rounded-xl border border-line bg-card p-3 text-sm">{ summary }</textarea>
+				</div>
+			}
+		</main>
+		@copyScript()
+	}
+}
+
+templ reportTable(title string, rows []db.ReportRow, labels map[string]string) {
+	@Card() {
+		<h2 class="mb-2 font-semibold">{ title }</h2>
+		<ul class="divide-y divide-line">
+			for _, row := range rows {
+				<li class="flex justify-between gap-3 py-2">
+					<span>{ label(labels, row.Key) } <span class="text-ink-muted">· { strconv.FormatInt(row.Orders, 10) }</span></span>
+					<span class="tabular-nums font-medium">{ money.Format(row.TotalCents) }</span>
+				</li>
+			}
+		</ul>
+	}
+}
