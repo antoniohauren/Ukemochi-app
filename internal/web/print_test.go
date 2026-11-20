@@ -106,7 +106,7 @@ func TestPrintToPrinter(t *testing.T) {
 
 	var sent []string
 	var fail error
-	s.Print = func(b []byte) error { sent = append(sent, string(b)); return fail }
+	s.Print = func(text string) error { sent = append(sent, text); return fail }
 	rec := do(h, "POST", "/pedidos/1/imprimir", nil, true)
 	if len(sent) != 1 || !strings.Contains(sent[0], "HOT ROLL") || !strings.Contains(rec.Body.String(), "Ticket impresso") {
 		t.Fatalf("print: %q %s", sent, rec.Body)

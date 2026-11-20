@@ -97,8 +97,15 @@ func run() error {
 	})
 	server := &web.Server{DB: database, Auth: auth, CompactTicket: os.Getenv("TICKET_ITEMS") == "compact"}
 	if mac := os.Getenv("PRINTER_BT"); mac != "" {
-		server.Print = func(data []byte) error { return btprint.Send(mac, data) }
+		server.Print = func(text string) error { return btprint.Send(mac, btprint.Ticket(text)) }
 		log.Printf("printing to bluetooth printer %s", mac)
+	}
+	if os.Getenv("PRINT_PREVIEW") == "1" {
+		server.Print = func(text string) error {
+			log.Printf("print preview, not sent:\n%s", text)
+			return nil
+		}
+		log.Print("PRINT_PREVIEW=1: tickets are logged here, not sent to the printer")
 	}
 	server.Routes(mux)
 

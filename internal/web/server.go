@@ -12,8 +12,8 @@ import (
 type Server struct {
 	DB   *db.DB
 	Auth *Auth
-	// Print sends ESC/POS bytes to the printer. Nil means print from the phone's browser instead.
-	Print func(data []byte) error
+	// Print sends ticket text to the printer. Nil means print from the phone's browser instead.
+	Print func(text string) error
 	// CompactTicket prints each item as "1x name" on one line, without its price.
 	CompactTicket bool
 }

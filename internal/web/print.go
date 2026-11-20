@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/antoniohauren/ukemochi/internal/btprint"
 	"github.com/antoniohauren/ukemochi/internal/db"
 	"github.com/antoniohauren/ukemochi/internal/money"
 )
@@ -49,7 +48,7 @@ func (s *Server) registerPrint(mux *http.ServeMux) {
 
 // printTicket sends o to the printer, logging a failure here.
 func (s *Server) printTicket(o db.Order) error {
-	err := s.Print(btprint.Ticket(ticketText(o, s.CompactTicket)))
+	err := s.Print(ticketText(o, s.CompactTicket))
 	if err != nil {
 		log.Printf("print order %d: %v", o.ID, err)
 	}
