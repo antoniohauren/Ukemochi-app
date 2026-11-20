@@ -316,3 +316,12 @@ func TestListOpenOrdersAndMenu(t *testing.T) {
 		t.Fatalf("admin menu hides inactive: %+v", menu)
 	}
 }
+
+func TestClientLabel(t *testing.T) {
+	if got := (Order{ClientName: "Antonio Carlos", PhoneLast4: "8888"}).ClientLabel(); got != "Antonio Carlos - 8888" {
+		t.Errorf("with phone: %q", got)
+	}
+	if got := (Order{ClientName: "Ana"}).ClientLabel(); got != "Ana" {
+		t.Errorf("without phone: %q", got)
+	}
+}

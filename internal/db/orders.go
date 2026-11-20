@@ -58,6 +58,14 @@ type Order struct {
 	Items          []OrderItem // filled by GetOrder only
 }
 
+// ClientLabel is the client name with the phone's last 4 digits when known, e.g. "Antonio Carlos - 8888".
+func (o Order) ClientLabel() string {
+	if o.PhoneLast4 == "" {
+		return o.ClientName
+	}
+	return o.ClientName + " - " + o.PhoneLast4
+}
+
 type OrderItem struct {
 	ID             int64
 	OrderID        int64
