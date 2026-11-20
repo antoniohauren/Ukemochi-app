@@ -39,7 +39,7 @@ fechado, cancelado -> aberto   (reopen)
 
 1. Open the app and tap **Novo pedido**.
 2. Choose WhatsApp. Enter the client name and, optionally, the last 4 digits of the phone.
-3. Add items from the menu.
+3. Add items: Adicionar item, then category, variant and quantity.
 4. Tap **Copiar confirmação** and paste it into WhatsApp.
 5. If the client paid with PIX, mark the order as paid with PIX.
 6. Tap **Enviar à cozinha** to print the ticket. Status becomes `cozinha`.
@@ -50,7 +50,7 @@ fechado, cancelado -> aberto   (reopen)
 
 1. Open the app and tap **Novo pedido**.
 2. Choose Balcão and enter the client name.
-3. Add items from the menu.
+3. Add items: Adicionar item, then category, variant and quantity.
 4. Tap **Enviar à cozinha** to print the ticket.
 5. Mark the order as paid with the method used, for example credit card.
 6. When the food is ready, mark it `pronto`.
@@ -60,7 +60,7 @@ fechado, cancelado -> aberto   (reopen)
 
 1. Open the app and tap **Novo pedido**.
 2. Choose WhatsApp. Enter the client name and, optionally, the last 4 digits of the phone.
-3. Add items from the menu.
+3. Add items: Adicionar item, then category, variant and quantity.
 4. Tap **Copiar confirmação** and paste it into WhatsApp.
 5. Choose **Consumir no local**.
 6. Tap **Enviar à cozinha** to print the ticket.

@@ -40,7 +40,8 @@ Go 1.22 `http.ServeMux` patterns.
 | `GET /pedidos/novo`                 | New order form                          |
 | `POST /pedidos`                     | Create order                            |
 | `GET /pedidos/{id}`                 | Order editor                            |
-| `POST /pedidos/{id}/itens`          | Add item (htmx fragment)                |
+| `GET /pedidos/{id}/adicionar`       | Add-item step: categories, `?categoria=` products, `?produto=` quantity |
+| `POST /pedidos/{id}/itens`          | Add item with `qty` (htmx fragment)     |
 | `PATCH /pedidos/{id}/itens/{item}`  | Change qty or note                      |
 | `DELETE /pedidos/{id}/itens/{item}` | Remove item                             |
 | `POST /pedidos/{id}/status`         | Move to the next status                 |

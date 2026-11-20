@@ -241,3 +241,54 @@ func TestBalcaoIsLocal(t *testing.T) {
 		t.Fatalf("consume = %q", o.Consume)
 	}
 }
+
+func TestAddItemSteps(t *testing.T) {
+	s, h, prod := dbServer(t)
+	do(h, "POST", "/pedidos", newOrderForm("Maria"), false)
+
+	// The editor offers the add sheet, opened by the button.
+	if body := do(h, "GET", "/pedidos/1", nil, false).Body.String(); !strings.Contains(body, `id="add-sheet"`) ||
+		!strings.Contains(body, `showModal()`) || !strings.Contains(body, "?categoria=1") {
+		t.Fatalf("editor: %s", body)
+	}
+	// Step 1 lists categories; step 2 the category's products; step 3 the quantity form.
+	for _, tc := range []struct{ target, want string }{
+		{"/pedidos/1/adicionar", "Sushi"},
+		{"/pedidos/1/adicionar?categoria=1", "?produto=" + itoa(prod)},
+		{"/pedidos/1/adicionar?produto=" + itoa(prod), `name="qty"`},
+	} {
+		for _, hx := range []bool{true, false} {
+			rec := do(h, "GET", tc.target, nil, hx)
+			body := rec.Body.String()
+			if rec.Code != http.StatusOK || !strings.Contains(body, tc.want) || strings.Contains(body, "<html") == hx {
+				t.Errorf("%s hx=%v: %d %s", tc.target, hx, rec.Code, body)
+			}
+		}
+	}
+	for _, target := range []string{"/pedidos/1/adicionar?categoria=99", "/pedidos/1/adicionar?produto=99", "/pedidos/1/adicionar?produto=x", "/pedidos/99/adicionar"} {
+		if rec := do(h, "GET", target, nil, false); rec.Code != http.StatusNotFound {
+			t.Errorf("%s: code %d", target, rec.Code)
+		}
+	}
+
+	// Quantity is validated, then added in one line; htmx gets the close-sheet trigger.
+	for _, q := range []string{"0", "-1", "1000", "x"} {
+		if rec := do(h, "POST", "/pedidos/1/itens", url.Values{"produto": {itoa(prod)}, "qty": {q}}, false); rec.Code != http.StatusUnprocessableEntity {
+			t.Errorf("qty %q: code %d", q, rec.Code)
+		}
+	}
+	rec := do(h, "POST", "/pedidos/1/itens", url.Values{"produto": {itoa(prod)}, "qty": {"3"}}, true)
+	if rec.Code != http.StatusOK || rec.Header().Get("HX-Trigger") != "item-added" {
+		t.Fatalf("add qty: %d %v", rec.Code, rec.Header())
+	}
+	o, _ := s.DB.GetOrder(context.Background(), 1)
+	if len(o.Items) != 1 || o.Items[0].Qty != 3 || o.TotalCents != 4500 {
+		t.Fatalf("after add: %+v", o)
+	}
+
+	// A closed-for-edits order sends the steps back to the editor.
+	do(h, "POST", "/pedidos/1/status", url.Values{"para": {"cozinha"}}, false)
+	if rec := do(h, "GET", "/pedidos/1/adicionar", nil, false); rec.Code != http.StatusSeeOther {
+		t.Errorf("not open: code %d", rec.Code)
+	}
+}

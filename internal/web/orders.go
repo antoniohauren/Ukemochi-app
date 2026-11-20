@@ -38,6 +38,7 @@ func (s *Server) registerOrders(mux *http.ServeMux) {
 	})
 	mux.HandleFunc("POST /pedidos", s.createOrder)
 	mux.HandleFunc("GET /pedidos/{id}", s.orderEditor)
+	mux.HandleFunc("GET /pedidos/{id}/adicionar", s.addItemStep)
 	mux.HandleFunc("POST /pedidos/{id}/itens", s.addItem)
 	mux.HandleFunc("PATCH /pedidos/{id}/itens/{item}", s.setItemQty)
 	mux.HandleFunc("POST /pedidos/{id}/itens/{item}", s.setItemQty) // form fallback without htmx
@@ -149,11 +150,73 @@ func (s *Server) addItem(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, inputError("Produto inválido."))
 		return
 	}
-	if err := s.DB.AddItem(r.Context(), id, product, 1, ""); err != nil {
+	qty := int64(1) // a post without qty adds one
+	if v := r.PostFormValue("qty"); v != "" {
+		if qty, err = strconv.ParseInt(v, 10, 64); err != nil || qty < 1 || qty > db.MaxQty {
+			fail(w, r, inputError(fmt.Sprintf("Quantidade deve ser de 1 a %d.", db.MaxQty)))
+			return
+		}
+	}
+	if err := s.DB.AddItem(r.Context(), id, product, qty, ""); err != nil {
 		fail(w, r, err)
 		return
 	}
+	if isHX(r) {
+		w.Header().Set("HX-Trigger", "item-added") // closes the add sheet
+	}
 	s.itemsChanged(w, r, id, "Item adicionado")
+}
+
+// addItemStep shows one step of adding an item: categories, then the category's
+// products (?categoria=), then the quantity for one product (?produto=).
+func (s *Server) addItemStep(w http.ResponseWriter, r *http.Request) {
+	o, ok := s.loadOrder(w, r)
+	if !ok {
+		return
+	}
+	if o.Status != db.StatusOpen {
+		redirect(w, r, orderURL(o.ID))
+		return
+	}
+	menu, err := s.DB.Menu(r.Context(), true)
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	step, err := pickStep(r, o.ID, menu)
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	if !isHX(r) {
+		step = AddItemPage(o, step)
+	}
+	render(w, r, http.StatusOK, step)
+}
+
+func pickStep(r *http.Request, orderID int64, menu []db.Category) (templ.Component, error) {
+	q := r.URL.Query()
+	if v := q.Get("produto"); v != "" {
+		for _, c := range menu {
+			for _, it := range c.Items {
+				for _, p := range it.Products {
+					if strconv.FormatInt(p.ID, 10) == v {
+						return AddQtyStep(orderID, c, it, p), nil
+					}
+				}
+			}
+		}
+		return nil, db.ErrNotFound
+	}
+	if v := q.Get("categoria"); v != "" {
+		for _, c := range menu {
+			if strconv.FormatInt(c.ID, 10) == v {
+				return AddVariantStep(orderID, c), nil
+			}
+		}
+		return nil, db.ErrNotFound
+	}
+	return AddCategoryStep(orderID, menu), nil
 }
 
 // setItemQty handles PATCH (and its POST fallback) with qty, and DELETE. A qty of 0 removes the line.

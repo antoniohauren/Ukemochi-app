@@ -142,40 +142,26 @@ templ OrderEditorPage(o db.Order, menu []db.Category) {
 				if o.Notes != "" {
 					<p class="mt-2 text-sm">Obs: { o.Notes }</p>
 				}
-				if len(menu) > 0 {
-					<nav class="-mx-4 mt-3 flex gap-2 overflow-x-auto px-4" aria-label="Categorias">
-						for _, c := range menu {
-							if len(c.Items) > 0 {
-								<a href={ templ.SafeURL(fmt.Sprintf("#cat-%d", c.ID)) } class="shrink-0 rounded-full border border-line bg-card px-4 py-2 text-sm font-semibold">{ c.Name }</a>
-							}
-						}
-					</nav>
-				}
 			</header>
 			if o.Status == db.StatusOpen {
-				<div class="space-y-6 p-4">
-					for _, c := range menu {
-						if len(c.Items) > 0 {
-							<section id={ fmt.Sprintf("cat-%d", c.ID) } class="scroll-mt-36">
-								<h2 class="mb-2 font-semibold text-ink-muted">{ c.Name }</h2>
-								<div class="grid grid-cols-2 gap-2">
-									for _, it := range c.Items {
-										for _, p := range it.Products {
-											@productButton(o.ID, it, p)
-										}
-									}
-								</div>
-							</section>
-						}
-					}
-					if len(menu) == 0 {
-						<p class="text-ink-muted">Cardápio vazio. Cadastre produtos em <a href="/admin/cardapio" class="underline">Admin › Cardápio</a>.</p>
-					}
+				<div class="grid p-4">
+					<a
+						href={ templ.SafeURL(addItemURL(o.ID, "", 0)) }
+						hx-get={ addItemURL(o.ID, "", 0) }
+						hx-target="#add-step"
+						onclick="document.getElementById('add-sheet').showModal()"
+						class={ buttonClass("primary") }
+					>+ Adicionar item</a>
 				</div>
 				@orderSummaryBar(o, false)
 				@BottomSheet("pedido-sheet", fmt.Sprintf("Pedido #%d", o.ID)) {
 					<div id="pedido-itens">
 						@OrderPanel(o)
+					</div>
+				}
+				@BottomSheet("add-sheet", "Adicionar item") {
+					<div id="add-step" hx-on:item-added="this.closest('dialog').close()">
+						@AddCategoryStep(o.ID, menu)
 					</div>
 				}
 			} else {
@@ -209,16 +195,6 @@ templ copyScript() {
 				}
 			});
 		</script>
-}
-
-templ productButton(orderID int64, it db.Item, p db.Product) {
-	<form method="post" action={ orderURL(orderID) + "/itens" } hx-post={ orderURL(orderID) + "/itens" } hx-target="#pedido-itens" hx-swap="innerHTML" class="contents">
-		<input type="hidden" name="produto" value={ strconv.FormatInt(p.ID, 10) }/>
-		<button type="submit" class="flex min-h-20 flex-col items-start justify-between rounded-xl border border-line bg-card p-3 text-left shadow-sm active:scale-[0.98] active:bg-brand-soft">
-			<span class="font-semibold leading-tight">{ db.DisplayName(it.Name, p.Variant, p.Size) }</span>
-			<span class="text-sm tabular-nums text-ink-muted">{ money.Format(p.PriceCents) }</span>
-		</button>
-	</form>
 }
 
 // orderSummaryBar is the bar that opens the order sheet. oob marks it for an htmx out-of-band swap.
@@ -350,4 +326,108 @@ templ ErrorPage(msg string) {
 			}
 		</main>
 	}
+}
+
+// addItemURL is the add-item step URL: categories with no key, else ?key=id.
+func addItemURL(orderID int64, key string, id int64) string {
+	u := orderURL(orderID) + "/adicionar"
+	if key != "" {
+		u += "?" + key + "=" + strconv.FormatInt(id, 10)
+	}
+	return u
+}
+
+func menuEmpty(menu []db.Category) bool {
+	for _, c := range menu {
+		if len(c.Items) > 0 {
+			return false
+		}
+	}
+	return true
+}
+
+const stepTile = "flex min-h-20 flex-col items-start justify-between rounded-xl border border-line bg-card p-3 text-left shadow-sm active:scale-[0.98] active:bg-brand-soft"
+
+// stepLink loads an add-item step into the sheet, or navigates to it without htmx.
+templ stepLink(url, class string) {
+	<a href={ templ.SafeURL(url) } hx-get={ url } hx-target="#add-step" class={ class }>
+		{ children... }
+	</a>
+}
+
+// AddItemPage is an add-item step as a full page, for browsers without htmx.
+templ AddItemPage(o db.Order, step templ.Component) {
+	@Layout(fmt.Sprintf("Adicionar item · Pedido #%d · Ukemochi", o.ID)) {
+		<main class="mx-auto max-w-lg">
+			<header class="flex items-center gap-2 border-b border-line p-4">
+				<a href={ templ.SafeURL(orderURL(o.ID)) } class={ buttonClass("ghost") } aria-label="Voltar">←</a>
+				<h1 class="text-lg font-bold">Adicionar item · #{ strconv.FormatInt(o.ID, 10) }</h1>
+			</header>
+			<div id="add-step" class="p-4">
+				@step
+			</div>
+		</main>
+	}
+}
+
+// AddCategoryStep is step 1: pick a category.
+templ AddCategoryStep(orderID int64, menu []db.Category) {
+	if menuEmpty(menu) {
+		<p class="text-ink-muted">Cardápio vazio. Cadastre produtos em <a href="/admin/cardapio" class="underline">Admin › Cardápio</a>.</p>
+	} else {
+		<div class="grid grid-cols-2 gap-2">
+			for _, c := range menu {
+				if len(c.Items) > 0 {
+					@stepLink(addItemURL(orderID, "categoria", c.ID), stepTile) {
+						<span class="font-semibold leading-tight">{ c.Name }</span>
+					}
+				}
+			}
+		</div>
+	}
+}
+
+// AddVariantStep is step 2: pick a product of the category.
+templ AddVariantStep(orderID int64, c db.Category) {
+	<div class="space-y-3">
+		@stepLink(addItemURL(orderID, "", 0), buttonClass("ghost")) {
+			← { c.Name }
+		}
+		<div class="grid grid-cols-2 gap-2">
+			for _, it := range c.Items {
+				for _, p := range it.Products {
+					@stepLink(addItemURL(orderID, "produto", p.ID), stepTile) {
+						<span class="font-semibold leading-tight">{ db.DisplayName(it.Name, p.Variant, p.Size) }</span>
+						<span class="text-sm tabular-nums text-ink-muted">{ money.Format(p.PriceCents) }</span>
+					}
+				}
+			}
+		</div>
+	</div>
+}
+
+// AddQtyStep is step 3: pick the quantity and add.
+templ AddQtyStep(orderID int64, c db.Category, it db.Item, p db.Product) {
+	<div class="space-y-4">
+		@stepLink(addItemURL(orderID, "categoria", c.ID), buttonClass("ghost")) {
+			← { c.Name }
+		}
+		<div>
+			<p class="text-lg font-semibold">{ db.DisplayName(it.Name, p.Variant, p.Size) }</p>
+			<p class="tabular-nums text-ink-muted">{ money.Format(p.PriceCents) } cada</p>
+		</div>
+		<form method="post" action={ orderURL(orderID) + "/itens" } hx-post={ orderURL(orderID) + "/itens" } hx-target="#pedido-itens" hx-swap="innerHTML" class="space-y-4">
+			<input type="hidden" name="produto" value={ strconv.FormatInt(p.ID, 10) }/>
+			<div class="flex items-center justify-center gap-3">
+				<button type="button" onclick="this.form.qty.stepDown()" class={ buttonClass("secondary") + " w-16 text-2xl" } aria-label="Menos">−</button>
+				<input type="number" name="qty" value="1" min="1" max={ strconv.FormatInt(db.MaxQty, 10) } inputmode="numeric" required aria-label="Quantidade" class="h-14 w-24 rounded-xl border border-line bg-card text-center text-2xl font-semibold tabular-nums"/>
+				<button type="button" onclick="this.form.qty.stepUp()" class={ buttonClass("secondary") + " w-16 text-2xl" } aria-label="Mais">+</button>
+			</div>
+			<div class="grid">
+				@Button("primary", templ.Attributes{"type": "submit"}) {
+					Adicionar
+				}
+			</div>
+		</form>
+	</div>
 }
