@@ -22,14 +22,17 @@ Order helper for a sushi restaurant. Waitresses record WhatsApp and in-house ord
 Needs Go 1.27.4+, `curl` and `sha256sum`.
 
 ```sh
-make seed   # optional: sample menu
-ADMIN_PIN=1234 SESSION_KEY=$(openssl rand -hex 32) make run
+cp .env.example .env   # then set ADMIN_PIN and SESSION_KEY
+make seed              # optional: sample menu
+make run
 # open http://127.0.0.1:8080
 ```
 
+`make run` and `make seed` read `.env` from the project root. It is not committed. Values in `.env` override the same variables set in the shell.
+
 `make run` runs `make gen` first: templ generate plus Tailwind build. The first run downloads the Tailwind binary into `bin/` and htmx into `static/`, both checked by SHA256.
 
-To change the port, set `ADDR`, e.g. `ADDR=127.0.0.1:3000`. Use `ADDR=0.0.0.0:8080` to reach it from phones on the LAN.
+To change the port, set `ADDR` in `.env`, e.g. `ADDR=127.0.0.1:3000`. Use `ADDR=0.0.0.0:8080` to reach it from phones on the LAN.
 
 | Command            | What it does                              |
 |--------------------|-------------------------------------------|
@@ -44,7 +47,7 @@ To change the port, set `ADDR`, e.g. `ADDR=127.0.0.1:3000`. Use `ADDR=0.0.0.0:80
 |---------------|----------------|----------------------------------|
 | `ADDR`        | `127.0.0.1:8080` | Listen address (host:port)     |
 | `DB_PATH`     | `ukemochi.db`  | SQLite file                      |
-| `ADMIN_PIN`   | (required)     | PIN for `/admin`                 |
+| `ADMIN_PIN`   | (required)     | PIN for `/admin`, 6+ characters  |
 | `SESSION_KEY` | (required)     | HMAC key for the admin cookie    |
 | `TZ`          | `America/Sao_Paulo` | Day boundary for reports    |
 

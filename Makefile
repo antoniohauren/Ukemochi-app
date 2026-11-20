@@ -13,6 +13,9 @@ TAILWIND_URL := https://github.com/tailwindlabs/tailwindcss/releases/download/$(
 
 .PHONY: gen run test seed build-arm64
 
+# Exports the variables in .env, if present, for run and seed. See .env.example.
+DOTENV := set -a; [ ! -f .env ] || . ./.env; set +a;
+
 $(TAILWIND):
 	mkdir -p bin
 	curl -fsSL -o bin/$(TAILWIND_ASSET) $(TAILWIND_URL)/$(TAILWIND_ASSET)
@@ -31,13 +34,13 @@ gen: $(TAILWIND) $(HTMX)
 	$(TAILWIND) -i web/input.css -o static/app.css --minify
 
 run: gen
-	go run ./cmd/ukemochi
+	$(DOTENV) go run ./cmd/ukemochi
 
 test: gen
 	go test ./...
 
 seed:
-	go run ./cmd/seed
+	$(DOTENV) go run ./cmd/seed
 
 build-arm64: gen
 	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o bin/ukemochi-arm64 ./cmd/ukemochi
