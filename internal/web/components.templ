@@ -108,13 +108,13 @@ templ MoneyInput(name, label, value string, attrs templ.Attributes) {
 
 // ToastRegion is the empty slot that Toast replaces out of band. Layout renders it once per page.
 templ ToastRegion() {
-	<div id="toast" aria-live="polite" class="pointer-events-none fixed inset-x-0 bottom-24 z-50 flex justify-center px-4"></div>
+	<div id="toast" aria-live="polite" class="pointer-events-none fixed inset-x-0 top-0 z-50 flex justify-center px-4 pt-[max(1rem,env(safe-area-inset-top))]"></div>
 }
 
 // Toast swaps into ToastRegion with hx-swap-oob, so any htmx response can carry one.
 // kind is "ok" or "error".
 templ Toast(kind, msg string) {
-	<div id="toast" hx-swap-oob="true" aria-live="polite" class="pointer-events-none fixed inset-x-0 bottom-24 z-50 flex justify-center px-4">
+	<div id="toast" hx-swap-oob="true" aria-live="polite" class="pointer-events-none fixed inset-x-0 top-0 z-50 flex justify-center px-4 pt-[max(1rem,env(safe-area-inset-top))]">
 		<div
 			if kind == "error" {
 				role="alert"
