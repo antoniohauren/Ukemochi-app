@@ -23,7 +23,7 @@ Needs Go 1.27.4+, `curl` and `sha256sum`.
 
 ```sh
 cp .env.example .env   # then set ADMIN_PIN and SESSION_KEY
-make seed              # optional: sample menu
+make seed              # optional: the app already seeds a new database
 make run
 # open http://127.0.0.1:8080
 ```
@@ -38,7 +38,7 @@ To change the port, set `ADDR` in `.env`, e.g. `ADDR=127.0.0.1:3000`. Use `ADDR=
 |--------------------|-------------------------------------------|
 | `make run`         | Generate, then run the server             |
 | `make test`        | Generate, then `go test ./...`            |
-| `make seed`        | Load the sample menu                      |
+| `make seed`        | Load the sample menu into an empty menu (the app does this itself for a new database) |
 | `make build-arm64` | Static build for the Raspberry Pi         |
 | `make build-amd64` | Single `bin/ukemochi-amd64` for Linux x64 |
 | `make build-windows` | Single `bin/ukemochi.exe` for Windows   |

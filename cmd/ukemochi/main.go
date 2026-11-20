@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"errors"
+	"fmt"
 	"io/fs"
 	"log"
 	"mime"
@@ -16,6 +17,7 @@ import (
 	"github.com/antoniohauren/ukemochi"
 	"github.com/antoniohauren/ukemochi/internal/btprint"
 	"github.com/antoniohauren/ukemochi/internal/db"
+	"github.com/antoniohauren/ukemochi/internal/seed"
 	"github.com/antoniohauren/ukemochi/internal/web"
 )
 
@@ -58,11 +60,20 @@ func main() {
 
 func run() error {
 	addr := env("ADDR", "127.0.0.1:8080")
-	database, err := db.Open(env("DB_PATH", "ukemochi.db"))
+	dbPath := env("DB_PATH", "ukemochi.db")
+	_, statErr := os.Stat(dbPath)
+	database, err := db.Open(dbPath)
 	if err != nil {
 		return err
 	}
 	defer database.Close()
+	// Seed only a brand-new file, so a menu emptied on purpose stays empty.
+	if errors.Is(statErr, fs.ErrNotExist) {
+		if err := seed.Menu(context.Background(), database); err != nil {
+			return fmt.Errorf("seed menu: %w", err)
+		}
+		log.Printf("new database %s: sample menu added", dbPath)
+	}
 
 	static, err := fs.Sub(ukemochi.Static, "static")
 	if err != nil {

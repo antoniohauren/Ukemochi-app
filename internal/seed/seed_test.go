@@ -1,4 +1,4 @@
-package main
+package seed
 
 import (
 	"context"
@@ -16,7 +16,7 @@ func TestSeed(t *testing.T) {
 	}
 	defer d.Close()
 	ctx := context.Background()
-	if err := seed(ctx, d); err != nil {
+	if err := Menu(ctx, d); err != nil {
 		t.Fatal(err)
 	}
 	menu, err := d.Menu(ctx, false)
@@ -38,7 +38,7 @@ func TestSeed(t *testing.T) {
 			}
 		}
 	}
-	if err := seed(ctx, d); err == nil {
+	if err := Menu(ctx, d); err == nil {
 		t.Error("second seed: want error on non-empty menu")
 	}
 }
