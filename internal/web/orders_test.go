@@ -153,8 +153,9 @@ func TestOrderFlow(t *testing.T) {
 	}
 
 	// Cancel, reopen, then the line can be deleted again.
-	if rec := do(h, "POST", "/pedidos/1/status", url.Values{"para": {"cancelado"}}, false); rec.Code != http.StatusConflict {
-		t.Fatalf("saiu to cancelado: %d", rec.Code) // only aberto, cozinha and pronto can be cancelled
+	// A delivery can be cancelled after the courier left: the client cancelled or was not home.
+	if rec := do(h, "POST", "/pedidos/1/status", url.Values{"para": {"cancelado"}}, false); rec.Code != http.StatusSeeOther {
+		t.Fatalf("saiu to cancelado: %d", rec.Code)
 	}
 	do(h, "POST", "/pedidos", newOrderForm("Bia"), false)
 	for _, to := range []string{"cancelado", "aberto"} {

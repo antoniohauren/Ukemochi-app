@@ -74,6 +74,7 @@ func CanTransition(from, to, consume string) bool {
 	switch from + ">" + to {
 	case "aberto>cozinha", "cozinha>pronto", "saiu>fechado",
 		"aberto>cancelado", "cozinha>cancelado", "pronto>cancelado",
+		"saiu>cancelado",                     // client cancelled at the last minute or was not home
 		"fechado>aberto", "cancelado>aberto": // reopen at any time
 
 		return true

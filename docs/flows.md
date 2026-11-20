@@ -11,9 +11,9 @@
 
 ```
 aberto -> cozinha -> pronto -> saiu -> fechado
-   \         \          \                ^
-    \         \          +---------------+   (consume = local)
-     +---------+----------> cancelado
+   \         \          \         \      ^
+    \         \          +---------\-----+   (consume = local)
+     +---------+----------+---------+-> cancelado
 
 fechado, cancelado -> aberto   (reopen)
 ```
