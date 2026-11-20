@@ -20,7 +20,7 @@ func TestTicketLinesFit(t *testing.T) {
 			{Qty: 999, UnitPriceCents: 99999, PrintableName: "COMBINADO ESPECIAL DA CASA XL 40", Note: "sem wasabi"},
 			{Qty: 1, UnitPriceCents: 600, PrintableName: "ABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJ"},
 		}}
-	text := ticketText(o)
+	text := ticketText(o, false)
 	for _, l := range strings.Split(text, "\n") {
 		if n := utf8.RuneCountInString(l); n > ticketWidth {
 			t.Errorf("line has %d chars: %q", n, l)
@@ -28,17 +28,20 @@ func TestTicketLinesFit(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Pedido #12           19/11 18:30", // São Paulo is UTC-3
-		"2x HOT ROLL             R$ 30,00",
+		"HOT ROLL\n2x                      R$ 30,00\n",
 		"TOTAL                R$ 1.234,56",
-		"A PAGAR",
+		"\n\n            A PAGAR",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("ticket lacks %q:\n%s", want, text)
 		}
 	}
 	o.Payment = "pix"
-	if !strings.Contains(ticketText(o), "PAGO                         PIX") {
-		t.Errorf("paid ticket:\n%s", ticketText(o))
+	if !strings.Contains(ticketText(o, false), "PAGO                         PIX") {
+		t.Errorf("paid ticket:\n%s", ticketText(o, false))
+	}
+	if c := ticketText(o, true); !strings.Contains(c, "\n2x HOT ROLL\n") || strings.Contains(c, "R$ 30,00") {
+		t.Errorf("compact ticket:\n%s", c)
 	}
 }
 
@@ -59,7 +62,7 @@ func TestPrintPage(t *testing.T) {
 	do(h, "POST", "/pedidos", newOrderForm("Maria"), false)
 	do(h, "POST", "/pedidos/1/itens", url.Values{"produto": {itoa(prod)}}, false)
 	body := do(h, "GET", "/pedidos/1/imprimir", nil, false).Body.String()
-	for _, want := range []string{"/static/print.css", "window.print()", "1x HOT ROLL"} {
+	for _, want := range []string{"/static/print.css", "window.print()", "HOT ROLL\n1x "} {
 		if !strings.Contains(body, want) {
 			t.Errorf("print page lacks %q", want)
 		}

@@ -22,7 +22,7 @@ func (s *Server) registerPrint(mux *http.ServeMux) {
 		if !ok {
 			return
 		}
-		render(w, r, http.StatusOK, TicketPage(o, ticketText(o)))
+		render(w, r, http.StatusOK, TicketPage(o, ticketText(o, s.CompactTicket)))
 	})
 	// Without a configured printer this falls back to the browser ticket page.
 	mux.HandleFunc("POST /pedidos/{id}/imprimir", func(w http.ResponseWriter, r *http.Request) {
@@ -49,7 +49,7 @@ func (s *Server) registerPrint(mux *http.ServeMux) {
 
 // printTicket sends o to the printer, logging a failure here.
 func (s *Server) printTicket(o db.Order) error {
-	err := s.Print(btprint.Ticket(ticketText(o)))
+	err := s.Print(btprint.Ticket(ticketText(o, s.CompactTicket)))
 	if err != nil {
 		log.Printf("print order %d: %v", o.ID, err)
 	}
@@ -57,21 +57,27 @@ func (s *Server) printTicket(o db.Order) error {
 }
 
 // ticketText lays the order out in lines of at most ticketWidth characters.
-func ticketText(o db.Order) string {
+// compact prints each item as "1x name" without its price.
+func ticketText(o db.Order, compact bool) string {
 	var lines []string
 	add := func(l ...string) { lines = append(lines, l...) }
 	sep := strings.Repeat("-", ticketWidth)
 
 	add(center("UKEMOCHI"))
 	add(leftRight(fmt.Sprintf("Pedido #%d", o.ID), localTime(o.CreatedAt, "02/01 15:04"))...)
-	add(wrap(o.ClientName)...)
+	add(wrap(o.ClientLabel())...)
 	add(leftRight(channelLabels[o.Channel], strings.ToUpper(consumeLabels[o.Consume]))...)
 	if o.Consume == db.ConsumeDelivery && o.Address != "" {
 		add(wrap(o.Address)...)
 	}
 	add(sep)
 	for _, it := range o.Items {
-		add(leftRight(fmt.Sprintf("%dx %s", it.Qty, it.PrintableName), money.Format(it.Qty*it.UnitPriceCents))...)
+		if compact {
+			add(wrap(fmt.Sprintf("%dx %s", it.Qty, it.PrintableName))...)
+		} else {
+			add(wrap(it.PrintableName)...)
+			add(leftRight(fmt.Sprintf("%dx", it.Qty), money.Format(it.Qty*it.UnitPriceCents))...)
+		}
 		if it.Note != "" {
 			add(wrap("  obs: " + it.Note)...)
 		}
@@ -81,7 +87,7 @@ func ticketText(o db.Order) string {
 	if o.Payment != "" {
 		add(leftRight("PAGO", paymentLabels[o.Payment])...)
 	} else {
-		add("A PAGAR")
+		add("", center("A PAGAR"))
 	}
 	if o.Notes != "" {
 		add(wrap("Obs: " + o.Notes)...)
