@@ -483,7 +483,7 @@ templ AddItemPage(o db.Order, title string, step templ.Component) {
 	@Layout(fmt.Sprintf("Adicionar item · Pedido #%d · Ukemochi", o.ID)) {
 		<main class="mx-auto max-w-lg">
 			<header class="flex items-center gap-2 border-b border-line p-4">
-				<a href={ templ.SafeURL(orderURL(o.ID)) } class={ buttonClass("ghost") } aria-label="Voltar">←</a>
+				@HomeLink()
 				<h1 class="truncate text-lg font-bold">{ title } · #{ strconv.FormatInt(o.ID, 10) }</h1>
 			</header>
 			<div id="add-step" class="p-4">
