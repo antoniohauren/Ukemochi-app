@@ -56,7 +56,7 @@ templ PaymentPanel(o db.Order) {
 							"hx-sync":    "this:replace",
 						})
 					</div>
-					<div class="flex min-h-12 shrink-0 items-center">
+					<div class="flex min-h-12 w-28 shrink-0 items-center justify-end">
 						@ChangeLine(changeText(o.TotalCents, cashValue(o)))
 					</div>
 				</div>
@@ -75,8 +75,13 @@ templ PaymentPanel(o db.Order) {
 }
 
 // ChangeLine is the live change text beside the cash field, swapped by GET /pedidos/{id}/troco.
-templ ChangeLine(text string, ok bool) {
-	<p id="troco" aria-live="polite" class={ "min-h-6 text-lg font-semibold tabular-nums", templ.KV("text-danger", !ok) }>{ text }</p>
+templ ChangeLine(label, amount string, ok bool) {
+	<p id="troco" aria-live="polite" class={ "min-h-6 text-lg font-semibold tabular-nums", templ.KV("text-ok", ok), templ.KV("text-danger", !ok) }>
+		if label != "" {
+			<span class="sr-only">{ label }: </span>
+		}
+		{ amount }
+	</p>
 }
 
 func cashValue(o db.Order) string {

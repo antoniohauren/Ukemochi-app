@@ -64,17 +64,18 @@ func (s *Server) change(w http.ResponseWriter, r *http.Request) {
 }
 
 // changeText describes the change for a typed cash amount; empty input gives an empty line.
-func changeText(total int64, typed string) (text string, ok bool) {
+// The amount is shown in color (ok green, short red); label is for screen readers only.
+func changeText(total int64, typed string) (label, amount string, ok bool) {
 	if strings.TrimSpace(typed) == "" {
-		return "", true
+		return "", "", true
 	}
 	given, err := money.Parse(typed)
 	if err != nil {
-		return "Valor inválido", false
+		return "Valor inválido", "—", false
 	}
 	c, enough := money.Change(total, given)
 	if !enough {
-		return "Faltam " + money.Format(total-given), false
+		return "Faltam", money.Format(total - given), false
 	}
-	return "Troco: " + money.Format(c), true
+	return "Troco", money.Format(c), true
 }

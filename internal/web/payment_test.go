@@ -27,18 +27,17 @@ func orderWith(t *testing.T, s *Server, prod, qty int64) int64 {
 
 func TestChangeText(t *testing.T) {
 	for _, tc := range []struct {
-		typed string
-		text  string
-		ok    bool
+		typed, label, amount string
+		ok                   bool
 	}{
-		{"", "", true},
-		{"50", "Troco: R$ 20,00", true},
-		{"30,00", "Troco: R$ 0,00", true},
-		{"20", "Faltam R$ 10,00", false},
-		{"abc", "Valor inválido", false},
+		{"", "", "", true},
+		{"50", "Troco", "R$ 20,00", true},
+		{"30,00", "Troco", "R$ 0,00", true},
+		{"20", "Faltam", "R$ 10,00", false},
+		{"abc", "Valor inválido", "—", false},
 	} {
-		if text, ok := changeText(3000, tc.typed); text != tc.text || ok != tc.ok {
-			t.Errorf("changeText(3000, %q) = %q, %v; want %q, %v", tc.typed, text, ok, tc.text, tc.ok)
+		if label, amount, ok := changeText(3000, tc.typed); label != tc.label || amount != tc.amount || ok != tc.ok {
+			t.Errorf("changeText(3000, %q) = %q, %q, %v; want %q, %q, %v", tc.typed, label, amount, ok, tc.label, tc.amount, tc.ok)
 		}
 	}
 }
@@ -47,7 +46,7 @@ func TestChangeEndpoint(t *testing.T) {
 	s, h, prod := dbServer(t)
 	id := orderWith(t, s, prod, 2)
 	rec := do(h, "GET", orderURL(id)+"/troco?valor=50", nil, true)
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Troco: R$ 20,00") {
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "R$ 20,00") || !strings.Contains(rec.Body.String(), "text-ok") {
 		t.Fatalf("code %d, body %s", rec.Code, rec.Body)
 	}
 	if rec := do(h, "GET", "/pedidos/999/troco?valor=1", nil, true); !strings.Contains(rec.Body.String(), "Não encontrado") {
