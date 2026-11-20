@@ -53,7 +53,8 @@ fechado, cancelado -> aberto   (reopen)
 3. Add items from the menu.
 4. Tap **Enviar à cozinha** to print the ticket.
 5. Mark the order as paid with the method used, for example credit card.
-6. Tap **Fechar**.
+6. When the food is ready, mark it `pronto`.
+7. Tap **Fechar**.
 
 ## Flow 3: WhatsApp, eat in
 
