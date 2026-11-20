@@ -14,7 +14,13 @@ templ OrderListPage(orders []db.Order) {
 		<main class="mx-auto max-w-lg space-y-4 p-4 pb-24">
 			<header class="flex items-center justify-between">
 				<h1 class="text-2xl font-bold">Pedidos</h1>
-				<a href="/admin/relatorio" class="text-sm font-medium text-ink-muted underline">Admin</a>
+				<div class="flex items-center gap-1">
+					<button type="button" onclick="toggleTheme()" aria-label="Alternar modo escuro" class="min-h-12 min-w-12 rounded-xl text-xl hover:bg-line">
+						<span class="dark:hidden">🌙</span>
+						<span class="hidden dark:inline">☀️</span>
+					</button>
+					<a href="/admin/relatorio" class="text-sm font-medium text-ink-muted underline">Admin</a>
+				</div>
 			</header>
 			if len(orders) == 0 {
 				<p class="py-8 text-center text-ink-muted">Nenhum pedido aberto.</p>

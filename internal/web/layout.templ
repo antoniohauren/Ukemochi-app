@@ -11,6 +11,17 @@ templ Layout(title string) {
 			<link rel="manifest" href="/static/manifest.webmanifest"/>
 			<link rel="icon" href="/static/icons/icon-192.png"/>
 			<link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png"/>
+			<script>
+				// Runs before paint so a dark page never flashes white. No saved choice: follow the phone.
+				try {
+					const t = localStorage.getItem("theme");
+					if (t === "dark" || (!t && matchMedia("(prefers-color-scheme: dark)").matches)) document.documentElement.classList.add("dark");
+				} catch (e) {}
+				function toggleTheme() {
+					const dark = document.documentElement.classList.toggle("dark");
+					try { localStorage.setItem("theme", dark ? "dark" : "light"); } catch (e) {}
+				}
+			</script>
 			<link rel="stylesheet" href="/static/app.css"/>
 			<script src="/static/htmx.min.js" defer></script>
 			<script>
