@@ -184,7 +184,13 @@ templ OrderEditorPage(o db.Order, menu []db.Category) {
 				</div>
 			}
 		</main>
-		<script>
+		@copyScript()
+	}
+}
+
+// copyScript makes every [data-copy] button copy the textarea it names.
+templ copyScript() {
+	<script>
 			// Copy a message; without clipboard access (plain HTTP, old browser) show the text selected instead.
 			document.addEventListener("click", async (e) => {
 				const b = e.target.closest("[data-copy]");
@@ -203,7 +209,6 @@ templ OrderEditorPage(o db.Order, menu []db.Category) {
 				}
 			});
 		</script>
-	}
 }
 
 templ productButton(orderID int64, it db.Item, p db.Product) {
@@ -296,9 +301,11 @@ templ OrderPanel(o db.Order) {
 				}
 			</form>
 		}
+		@PaymentPanel(o)
 		<div class="grid gap-2">
 			for _, a := range statusActions {
 				if db.CanTransition(o.Status, a.To, o.Consume) {
+					{{ unpaid := a.To == db.StatusClosed && o.Payment == "" }}
 					<form
 						method="post"
 						action={ orderURL(o.ID) + "/status" }
@@ -308,8 +315,11 @@ templ OrderPanel(o db.Order) {
 						}
 					>
 						<input type="hidden" name="para" value={ a.To }/>
-						@Button(a.Variant, templ.Attributes{"type": "submit"}) {
+						@Button(a.Variant, templ.Attributes{"type": "submit", "disabled": unpaid}) {
 							{ a.Label }
+						}
+						if unpaid {
+							<p class="mt-1 text-center text-sm text-ink-muted">Registre o pagamento para fechar.</p>
 						}
 					</form>
 				}

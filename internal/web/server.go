@@ -19,6 +19,8 @@ func (s *Server) Routes(mux *http.ServeMux) {
 	s.registerOrders(mux)
 	s.registerMenu(mux)
 	s.registerPrint(mux)
+	s.registerPayment(mux)
+	s.registerReport(mux)
 	s.registerDev(mux)
 	s.registerAuth(mux)
 }
