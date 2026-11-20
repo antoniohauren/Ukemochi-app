@@ -336,9 +336,11 @@ templ orderActions(o db.Order, oob bool) {
 					@statusForm(o, a.To, a.Label, a.Variant)
 				}
 			}
-			@LinkButton("secondary", orderURL(o.ID)+"/imprimir") {
-				Imprimir ticket
-			}
+			<form method="post" action={ orderURL(o.ID) + "/imprimir" } hx-post={ orderURL(o.ID) + "/imprimir" } hx-target="#acoes" hx-disabled-elt="find button" class="grid">
+				@Button("secondary", templ.Attributes{"type": "submit"}) {
+					Imprimir ticket
+				}
+			</form>
 		</div>
 		for _, a := range statusActions {
 			if a.Variant != "primary" && db.CanTransition(o.Status, a.To, o.Consume) {

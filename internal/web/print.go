@@ -2,9 +2,11 @@ package web
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 
+	"github.com/antoniohauren/ukemochi/internal/btprint"
 	"github.com/antoniohauren/ukemochi/internal/db"
 	"github.com/antoniohauren/ukemochi/internal/money"
 )
@@ -22,6 +24,36 @@ func (s *Server) registerPrint(mux *http.ServeMux) {
 		}
 		render(w, r, http.StatusOK, TicketPage(o, ticketText(o)))
 	})
+	// Without a configured printer this falls back to the browser ticket page.
+	mux.HandleFunc("POST /pedidos/{id}/imprimir", func(w http.ResponseWriter, r *http.Request) {
+		o, ok := s.loadOrder(w, r)
+		if !ok {
+			return
+		}
+		if s.Print == nil {
+			redirect(w, r, orderURL(o.ID)+"/imprimir")
+			return
+		}
+		if err := s.printTicket(o); err != nil {
+			fail(w, r, inputError("Impressora não respondeu. Ligue a impressora e tente de novo."))
+			return
+		}
+		if !isHX(r) {
+			http.Redirect(w, r, orderURL(o.ID), http.StatusSeeOther)
+			return
+		}
+		w.Header().Set("HX-Reswap", "none")
+		render(w, r, http.StatusOK, Toast("ok", "Ticket impresso."))
+	})
+}
+
+// printTicket sends o to the printer, logging a failure here.
+func (s *Server) printTicket(o db.Order) error {
+	err := s.Print(btprint.Ticket(ticketText(o)))
+	if err != nil {
+		log.Printf("print order %d: %v", o.ID, err)
+	}
+	return err
 }
 
 // ticketText lays the order out in lines of at most ticketWidth characters.

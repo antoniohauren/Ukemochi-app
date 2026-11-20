@@ -12,6 +12,8 @@ import (
 type Server struct {
 	DB   *db.DB
 	Auth *Auth
+	// Print sends ESC/POS bytes to the printer. Nil means print from the phone's browser instead.
+	Print func(data []byte) error
 }
 
 // Routes registers every feature's routes on mux.

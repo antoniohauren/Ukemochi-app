@@ -49,6 +49,7 @@ Go 1.22 `http.ServeMux` patterns.
 | `GET /pedidos/{id}/troco?valor=`    | Change calculation (htmx fragment)      |
 | `GET /pedidos/{id}/mensagem/{tipo}` | Message text: `confirmacao`, `pronto`, `saiu` |
 | `GET /pedidos/{id}/imprimir`        | 58mm ticket page                        |
+| `POST /pedidos/{id}/imprimir`       | Print on the Bluetooth printer (falls back to the ticket page) |
 | `GET /admin/login`, `POST /admin/login` | PIN login                           |
 | `GET /admin/relatorio?dia=`         | Daily report                            |
 | `/admin/cardapio/...`               | Menu CRUD                               |
@@ -68,7 +69,9 @@ Status transitions are checked on the server. See the rules in [flows](flows.md)
 
 ## Printing
 
-`/pedidos/{id}/imprimir` is a standalone page that calls `window.print()` on load. The phone sends it to the printer through the Android print service (for example RawBT or the printer vendor's app).
+With `PRINTER_BT` set to a printer's Bluetooth address, the server prints the ticket itself: `POST /pedidos/{id}/imprimir` and sending an order to the kitchen open an RFCOMM connection (channel 1), send ESC/POS text and disconnect (`internal/btprint`, Linux only). Text goes out in code page CP860 (`ESC t 3`), so accents print. Pair and trust the printer on the server once (`bluetoothctl pair <mac>`, `trust <mac>`). Do not "connect" it in the desktop Bluetooth menu: a serial-only printer drops that link after a moment, which is normal.
+
+Without `PRINTER_BT`, or when the printer does not answer on kitchen send, `/pedidos/{id}/imprimir` is a standalone page that calls `window.print()` on load. The phone sends it to the printer through the Android print service (for example RawBT or the printer vendor's app).
 
 ```css
 @page { margin: 0; }                      /* static/print.css */

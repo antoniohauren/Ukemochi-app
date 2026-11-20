@@ -1,6 +1,8 @@
 package web
 
 import (
+	"errors"
+	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
@@ -78,5 +80,36 @@ func TestTicketHeight(t *testing.T) {
 	}
 	if got := ticketHeight(strings.Repeat("a\n", 9) + "a"); got != "39.0mm" {
 		t.Errorf("10 lines: %s", got)
+	}
+}
+
+func TestPrintToPrinter(t *testing.T) {
+	s, h, prod := dbServer(t)
+	do(h, "POST", "/pedidos", newOrderForm("Maria"), false)
+	do(h, "POST", "/pedidos/1/itens", url.Values{"produto": {itoa(prod)}}, true)
+
+	// No printer: the button falls back to the browser ticket page.
+	if rec := do(h, "POST", "/pedidos/1/imprimir", nil, false); rec.Header().Get("Location") != "/pedidos/1/imprimir" {
+		t.Fatalf("no printer: %d %q", rec.Code, rec.Header().Get("Location"))
+	}
+
+	var sent []string
+	var fail error
+	s.Print = func(b []byte) error { sent = append(sent, string(b)); return fail }
+	rec := do(h, "POST", "/pedidos/1/imprimir", nil, true)
+	if len(sent) != 1 || !strings.Contains(sent[0], "HOT ROLL") || !strings.Contains(rec.Body.String(), "Ticket impresso") {
+		t.Fatalf("print: %q %s", sent, rec.Body)
+	}
+	// Sending to the kitchen prints and stays on the order.
+	if rec := do(h, "POST", "/pedidos/1/status", url.Values{"para": {"cozinha"}}, false); rec.Header().Get("Location") != "/pedidos/1" || len(sent) != 2 {
+		t.Fatalf("kitchen: %q, %d prints", rec.Header().Get("Location"), len(sent))
+	}
+
+	fail = errors.New("off")
+	if rec := do(h, "POST", "/pedidos/1/imprimir", nil, true); !strings.Contains(rec.Body.String(), "Impressora não respondeu") {
+		t.Fatalf("printer off: %s", rec.Body)
+	}
+	if rec := do(h, "POST", "/pedidos/99/imprimir", nil, false); rec.Code != http.StatusNotFound {
+		t.Fatalf("missing order: %d", rec.Code)
 	}
 }

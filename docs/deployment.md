@@ -95,4 +95,4 @@ Copy the backups off the machine regularly, for example to a USB drive or cloud 
 
 1. Open `https://pedidos.<domain>` in Chrome.
 2. Tap the menu, then **Instalar app**.
-3. Set up the thermal printer in the Android print service and print a test ticket.
+3. Set up the thermal printer and print a test ticket: either pair it with the server and set `PRINTER_BT` (see `architecture.md`, Printing), or set it up in the Android print service.

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/antoniohauren/ukemochi"
+	"github.com/antoniohauren/ukemochi/internal/btprint"
 	"github.com/antoniohauren/ukemochi/internal/db"
 	"github.com/antoniohauren/ukemochi/internal/web"
 )
@@ -80,7 +81,12 @@ func run() error {
 		w.Header().Set("Cache-Control", "no-cache")
 		http.ServeFileFS(w, r, static, "sw.js")
 	})
-	(&web.Server{DB: database, Auth: auth}).Routes(mux)
+	server := &web.Server{DB: database, Auth: auth}
+	if mac := os.Getenv("PRINTER_BT"); mac != "" {
+		server.Print = func(data []byte) error { return btprint.Send(mac, data) }
+		log.Printf("printing to bluetooth printer %s", mac)
+	}
+	server.Routes(mux)
 
 	srv := &http.Server{
 		Addr:              addr,
