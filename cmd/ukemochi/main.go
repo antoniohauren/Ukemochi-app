@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"io/fs"
 	"log"
+	"mime"
 	"net/http"
 	"os"
 	"os/signal"
@@ -21,6 +23,26 @@ func env(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// authConfig reads ADMIN_PIN and SESSION_KEY. Without SESSION_KEY a random key is used,
+// so admin sessions end when the app restarts.
+func authConfig() (*web.Auth, error) {
+	a := &web.Auth{PIN: os.Getenv("ADMIN_PIN"), Key: []byte(os.Getenv("SESSION_KEY"))}
+	if a.PIN == "" {
+		log.Print("ADMIN_PIN not set: admin login is disabled")
+	}
+	switch {
+	case len(a.Key) == 0:
+		log.Print("SESSION_KEY not set: using a random key, admin sessions end on restart")
+		a.Key = make([]byte, 32)
+		if _, err := rand.Read(a.Key); err != nil {
+			return nil, err
+		}
+	case len(a.Key) < 32:
+		return nil, errors.New("SESSION_KEY must be at least 32 characters")
+	}
+	return a, nil
 }
 
 func main() {
@@ -41,9 +63,20 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	auth, err := authConfig()
+	if err != nil {
+		return err
+	}
+
+	mime.AddExtensionType(".webmanifest", "application/manifest+json")
 	mux := http.NewServeMux()
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServerFS(static)))
-	(&web.Server{DB: database}).Routes(mux)
+	// The service worker lives at the root so its scope covers the whole app.
+	mux.HandleFunc("GET /sw.js", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-cache")
+		http.ServeFileFS(w, r, static, "sw.js")
+	})
+	(&web.Server{DB: database, Auth: auth}).Routes(mux)
 
 	srv := &http.Server{
 		Addr:              addr,
