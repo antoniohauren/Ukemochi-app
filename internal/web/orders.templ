@@ -1,0 +1,343 @@
+package web
+
+import (
+	"fmt"
+	"strconv"
+
+	"github.com/antoniohauren/ukemochi/internal/db"
+	"github.com/antoniohauren/ukemochi/internal/money"
+)
+
+templ OrderListPage(orders []db.Order) {
+	@Layout("Pedidos · Ukemochi") {
+		<main class="mx-auto max-w-lg space-y-4 p-4 pb-24">
+			<header class="flex items-center justify-between">
+				<h1 class="text-2xl font-bold">Pedidos</h1>
+				<a href="/admin/relatorio" class="text-sm font-medium text-ink-muted underline">Admin</a>
+			</header>
+			if len(orders) == 0 {
+				<p class="py-8 text-center text-ink-muted">Nenhum pedido aberto.</p>
+			}
+			<ul class="space-y-3">
+				for _, o := range orders {
+					<li>
+						<a href={ templ.SafeURL(orderURL(o.ID)) } class="block active:opacity-80">
+							@Card() {
+								<div class="flex items-start justify-between gap-3">
+									<div class="min-w-0">
+										<p class="truncate font-semibold">#{ strconv.FormatInt(o.ID, 10) } { o.ClientName }</p>
+										<p class="text-sm text-ink-muted">
+											{ channelLabels[o.Channel] } · { consumeLabels[o.Consume] } · { localTime(o.CreatedAt, "15:04") }
+										</p>
+									</div>
+									@StatusChip(o.Status)
+								</div>
+								<p class="mt-2 text-lg font-bold tabular-nums">{ money.Format(o.TotalCents) }</p>
+							}
+						</a>
+					</li>
+				}
+			</ul>
+		</main>
+		<div class="fixed inset-x-0 bottom-0 mx-auto grid max-w-lg p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+			@LinkButton("primary", "/pedidos/novo") {
+				+ Novo pedido
+			}
+		</div>
+	}
+}
+
+func optionClass() string {
+	return "flex min-h-12 cursor-pointer items-center justify-center rounded-xl border border-line bg-card px-4 font-semibold " +
+		"has-[:checked]:border-brand has-[:checked]:bg-brand-soft has-[:checked]:text-brand-strong"
+}
+
+func selectedVariant(selected bool) string {
+	if selected {
+		return "primary"
+	}
+	return "secondary"
+}
+
+func fieldClass() string {
+	return "min-h-12 w-full rounded-xl border border-line bg-card px-4 text-lg outline-none focus:border-brand focus:ring-2 focus:ring-brand-soft"
+}
+
+templ NewOrderPage(o db.NewOrder, errMsg string) {
+	@Layout("Novo pedido · Ukemochi") {
+		<main class="mx-auto max-w-lg p-4">
+			<header class="mb-4 flex items-center gap-2">
+				<a href="/" class={ buttonClass("ghost") } aria-label="Voltar">←</a>
+				<h1 class="text-xl font-bold">Novo pedido</h1>
+			</header>
+			<form method="post" action="/pedidos" class="space-y-5">
+				<fieldset>
+					<legend class="mb-1 text-sm font-medium text-ink-muted">Canal</legend>
+					<div class="grid grid-cols-2 gap-2">
+						<label class={ optionClass() }>
+							<input type="radio" name="canal" value="whatsapp" class="sr-only" checked?={ o.Channel != "balcao" }/>
+							WhatsApp
+						</label>
+						<label class={ optionClass() }>
+							<input type="radio" name="canal" value="balcao" class="sr-only" checked?={ o.Channel == "balcao" }/>
+							Balcão
+						</label>
+					</div>
+				</fieldset>
+				<fieldset>
+					<legend class="mb-1 text-sm font-medium text-ink-muted">Consumo</legend>
+					<div class="grid grid-cols-2 gap-2">
+						<label class={ optionClass() }>
+							<input type="radio" name="consumo" value="entrega" class="sr-only" checked?={ o.Consume != db.ConsumeLocal }/>
+							Entrega
+						</label>
+						<label class={ optionClass() }>
+							<input type="radio" name="consumo" value="local" class="sr-only" checked?={ o.Consume == db.ConsumeLocal }/>
+							No local
+						</label>
+					</div>
+				</fieldset>
+				<label class="block">
+					<span class="mb-1 block text-sm font-medium text-ink-muted">Nome do cliente</span>
+					<input type="text" name="nome" value={ o.ClientName } required maxlength="60" autocomplete="off" autocapitalize="words" class={ fieldClass() }/>
+				</label>
+				<label class="block">
+					<span class="mb-1 block text-sm font-medium text-ink-muted">Telefone (4 últimos dígitos, opcional)</span>
+					<input type="text" name="telefone" value={ o.PhoneLast4 } inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="off" class={ fieldClass() }/>
+				</label>
+				<label class="block">
+					<span class="mb-1 block text-sm font-medium text-ink-muted">Observação (opcional)</span>
+					<textarea name="obs" maxlength="200" rows="2" class={ fieldClass() + " py-3" }>{ o.Notes }</textarea>
+				</label>
+				if errMsg != "" {
+					<p role="alert" class="font-medium text-danger">{ errMsg }</p>
+				}
+				<div class="grid">
+					@Button("primary", templ.Attributes{"type": "submit"}) {
+						Criar pedido
+					}
+				</div>
+			</form>
+		</main>
+	}
+}
+
+templ OrderEditorPage(o db.Order, menu []db.Category) {
+	@Layout(fmt.Sprintf("Pedido #%d · Ukemochi", o.ID)) {
+		<main class="mx-auto max-w-lg pb-28">
+			<header class="sticky top-0 z-10 border-b border-line bg-surface/95 p-4 backdrop-blur">
+				<div class="flex items-center gap-2">
+					<a href="/" class={ buttonClass("ghost") } aria-label="Voltar">←</a>
+					<div class="min-w-0 flex-1">
+						<h1 class="truncate text-lg font-bold">#{ strconv.FormatInt(o.ID, 10) } { o.ClientName }</h1>
+						<p class="text-sm text-ink-muted">
+							{ channelLabels[o.Channel] } · { consumeLabels[o.Consume] }
+							if o.PhoneLast4 != "" {
+								· …{ o.PhoneLast4 }
+							}
+						</p>
+					</div>
+					@StatusChip(o.Status)
+				</div>
+				if o.Notes != "" {
+					<p class="mt-2 text-sm">Obs: { o.Notes }</p>
+				}
+				if len(menu) > 0 {
+					<nav class="-mx-4 mt-3 flex gap-2 overflow-x-auto px-4" aria-label="Categorias">
+						for _, c := range menu {
+							if len(c.Items) > 0 {
+								<a href={ templ.SafeURL(fmt.Sprintf("#cat-%d", c.ID)) } class="shrink-0 rounded-full border border-line bg-card px-4 py-2 text-sm font-semibold">{ c.Name }</a>
+							}
+						}
+					</nav>
+				}
+			</header>
+			if o.Status == db.StatusOpen {
+				<div class="space-y-6 p-4">
+					for _, c := range menu {
+						if len(c.Items) > 0 {
+							<section id={ fmt.Sprintf("cat-%d", c.ID) } class="scroll-mt-36">
+								<h2 class="mb-2 font-semibold text-ink-muted">{ c.Name }</h2>
+								<div class="grid grid-cols-2 gap-2">
+									for _, it := range c.Items {
+										for _, p := range it.Products {
+											@productButton(o.ID, it, p)
+										}
+									}
+								</div>
+							</section>
+						}
+					}
+					if len(menu) == 0 {
+						<p class="text-ink-muted">Cardápio vazio. Cadastre produtos em <a href="/admin/cardapio" class="underline">Admin › Cardápio</a>.</p>
+					}
+				</div>
+				@orderSummaryBar(o, false)
+				@BottomSheet("pedido-sheet", fmt.Sprintf("Pedido #%d", o.ID)) {
+					<div id="pedido-itens">
+						@OrderPanel(o)
+					</div>
+				}
+			} else {
+				<div id="pedido-itens" class="p-4">
+					@OrderPanel(o)
+				</div>
+			}
+		</main>
+		<script>
+			// Copy a message; without clipboard access (plain HTTP, old browser) show the text selected instead.
+			document.addEventListener("click", async (e) => {
+				const b = e.target.closest("[data-copy]");
+				if (!b) return;
+				const ta = document.getElementById(b.dataset.copy);
+				if (!ta) return;
+				try {
+					await navigator.clipboard.writeText(ta.value);
+					const label = b.textContent;
+					b.textContent = "Copiado!";
+					setTimeout(() => (b.textContent = label), 1500);
+				} catch {
+					ta.classList.remove("hidden");
+					ta.focus();
+					ta.select();
+				}
+			});
+		</script>
+	}
+}
+
+templ productButton(orderID int64, it db.Item, p db.Product) {
+	<form method="post" action={ orderURL(orderID) + "/itens" } hx-post={ orderURL(orderID) + "/itens" } hx-target="#pedido-itens" hx-swap="innerHTML" class="contents">
+		<input type="hidden" name="produto" value={ strconv.FormatInt(p.ID, 10) }/>
+		<button type="submit" class="flex min-h-20 flex-col items-start justify-between rounded-xl border border-line bg-card p-3 text-left shadow-sm active:scale-[0.98] active:bg-brand-soft">
+			<span class="font-semibold leading-tight">{ db.DisplayName(it.Name, p.Variant, p.Size) }</span>
+			<span class="text-sm tabular-nums text-ink-muted">{ money.Format(p.PriceCents) }</span>
+		</button>
+	</form>
+}
+
+// orderSummaryBar is the bar that opens the order sheet. oob marks it for an htmx out-of-band swap.
+templ orderSummaryBar(o db.Order, oob bool) {
+	<div
+		id="resumo"
+		if oob {
+			hx-swap-oob="true"
+		}
+		class="fixed inset-x-0 bottom-0 z-20 mx-auto grid max-w-lg p-4 pb-[max(1rem,env(safe-area-inset-bottom))]"
+	>
+		@Button("primary", templ.Attributes{"type": "button", "onclick": "document.getElementById('pedido-sheet').showModal()"}) {
+			<span>Ver pedido · { strconv.FormatInt(itemCount(o), 10) } itens</span>
+			<span class="tabular-nums">{ money.Format(o.TotalCents) }</span>
+		}
+	</div>
+}
+
+// ItemsUpdate answers an htmx item edit: the new panel plus the summary bar and a toast out of band.
+templ ItemsUpdate(o db.Order, toast string) {
+	@OrderPanel(o)
+	@orderSummaryBar(o, true)
+	if toast != "" {
+		@Toast("ok", toast)
+	}
+}
+
+// OrderPanel shows the items, total and actions of an order.
+templ OrderPanel(o db.Order) {
+	{{ editable := o.Status == db.StatusOpen }}
+	<div class="space-y-4">
+		<p id="sheet-error" role="alert" class="empty:hidden font-medium text-danger"></p>
+		if len(o.Items) == 0 {
+			<p class="text-ink-muted">Nenhum item ainda.</p>
+		}
+		<ul class="divide-y divide-line">
+			for _, it := range o.Items {
+				<li class="flex items-center gap-3 py-2">
+					<div class="min-w-0 flex-1">
+						<p class="font-medium leading-tight">
+							if !editable {
+								{ strconv.FormatInt(it.Qty, 10) }x
+							}
+							{ it.NameSnapshot }
+						</p>
+						if it.Note != "" {
+							<p class="text-sm text-ink-muted">{ it.Note }</p>
+						}
+						<p class="text-sm tabular-nums text-ink-muted">{ money.Format(it.Qty * it.UnitPriceCents) }</p>
+					</div>
+					if editable {
+						{{ itemURL := fmt.Sprintf("/pedidos/%d/itens/%d", o.ID, it.ID) }}
+						<form method="post" action={ itemURL } hx-patch={ itemURL } hx-target="#pedido-itens" hx-swap="innerHTML" class="flex items-center gap-1">
+							<button type="submit" name="qty" value={ strconv.FormatInt(it.Qty-1, 10) } class={ buttonClass("secondary") + " w-12 px-0" } aria-label={ "Diminuir " + it.NameSnapshot }>−</button>
+							<span class="w-8 text-center text-lg font-semibold tabular-nums">{ strconv.FormatInt(it.Qty, 10) }</span>
+							<button type="submit" name="qty" value={ strconv.FormatInt(it.Qty+1, 10) } disabled?={ it.Qty >= db.MaxQty } class={ buttonClass("secondary") + " w-12 px-0" } aria-label={ "Aumentar " + it.NameSnapshot }>+</button>
+						</form>
+					}
+				</li>
+			}
+		</ul>
+		<p class="flex justify-between text-xl font-bold"><span>Total</span><span class="tabular-nums">{ money.Format(o.TotalCents) }</span></p>
+		if msgs := copyMessages(o); len(msgs) > 0 {
+			<div class="grid gap-2">
+				for _, m := range msgs {
+					@Button("secondary", templ.Attributes{"type": "button", "data-copy": "msg-" + m.Kind}) {
+						{ m.Label }
+					}
+					<textarea id={ "msg-" + m.Kind } readonly rows="6" class="hidden w-full rounded-xl border border-line bg-card p-3 text-sm">{ m.Text }</textarea>
+				}
+			</div>
+		}
+		if o.Status == db.StatusOpen || o.Status == db.StatusKitchen || o.Status == db.StatusReady {
+			<form method="post" action={ orderURL(o.ID) + "/consumo" } class="grid grid-cols-2 gap-2">
+				@Button(selectedVariant(o.Consume == db.ConsumeDelivery), templ.Attributes{"type": "submit", "name": "consumo", "value": db.ConsumeDelivery}) {
+					Entrega
+				}
+				@Button(selectedVariant(o.Consume == db.ConsumeLocal), templ.Attributes{"type": "submit", "name": "consumo", "value": db.ConsumeLocal}) {
+					Consumir no local
+				}
+			</form>
+		}
+		<div class="grid gap-2">
+			for _, a := range statusActions {
+				if db.CanTransition(o.Status, a.To, o.Consume) {
+					<form
+						method="post"
+						action={ orderURL(o.ID) + "/status" }
+						class="grid"
+						if a.To == db.StatusCancelled {
+							onsubmit="return confirm('Cancelar este pedido?')"
+						}
+					>
+						<input type="hidden" name="para" value={ a.To }/>
+						@Button(a.Variant, templ.Attributes{"type": "submit"}) {
+							{ a.Label }
+						}
+					</form>
+				}
+			}
+			@LinkButton("ghost", orderURL(o.ID)+"/imprimir") {
+				Imprimir ticket
+			}
+		</div>
+	</div>
+}
+
+// sheetError fills the error line of OrderPanel out of band.
+templ sheetError(msg string) {
+	<p id="sheet-error" hx-swap-oob="true" role="alert" class="empty:hidden font-medium text-danger">{ msg }</p>
+}
+
+templ ErrorPage(msg string) {
+	@Layout("Erro · Ukemochi") {
+		<main class="mx-auto flex min-h-screen max-w-sm flex-col justify-center gap-4 p-4">
+			@Card() {
+				<p role="alert" class="text-lg font-semibold text-danger">{ msg }</p>
+			}
+			@Button("secondary", templ.Attributes{"type": "button", "onclick": "history.back()"}) {
+				Voltar
+			}
+			@LinkButton("ghost", "/") {
+				Início
+			}
+		</main>
+	}
+}

@@ -1,0 +1,233 @@
+package web
+
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"testing"
+
+	"github.com/antoniohauren/ukemochi/internal/db"
+)
+
+// dbServer returns a handler over a temp DB holding one active product (Hot roll, R$ 15,00).
+func dbServer(t *testing.T) (*Server, http.Handler, int64) {
+	t.Helper()
+	d, err := db.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { d.Close() })
+	ctx := context.Background()
+	cat, err := d.CreateCategory(ctx, "Sushi", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err := d.CreateItem(ctx, db.Item{CategoryID: cat, Name: "Hot roll", Active: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	prod, err := d.CreateProduct(ctx, db.Product{ItemID: item, PrintableName: "HOT ROLL", PriceCents: 1500, Active: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{DB: d, Auth: &Auth{PIN: "4321", Key: []byte("0123456789abcdef0123456789abcdef")}}
+	mux := http.NewServeMux()
+	s.Routes(mux)
+	return s, mux, prod
+}
+
+func do(h http.Handler, method, target string, form url.Values, hx bool) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(method, target, strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	if hx {
+		req.Header.Set("HX-Request", "true")
+	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
+func newOrderForm(name string) url.Values {
+	return url.Values{"canal": {"whatsapp"}, "consumo": {"entrega"}, "nome": {name}, "telefone": {"1234"}}
+}
+
+func TestCreateOrderValidation(t *testing.T) {
+	_, h, _ := dbServer(t)
+	for _, tc := range []struct {
+		name string
+		form url.Values
+	}{
+		{"no name", url.Values{"canal": {"whatsapp"}, "nome": {"  "}}},
+		{"bad channel", url.Values{"canal": {"ifood"}, "nome": {"Maria"}}},
+		{"bad consume", url.Values{"canal": {"balcao"}, "consumo": {"x"}, "nome": {"Maria"}}},
+		{"bad phone", url.Values{"canal": {"whatsapp"}, "nome": {"Maria"}, "telefone": {"12a4"}}},
+		{"long name", url.Values{"canal": {"whatsapp"}, "nome": {strings.Repeat("a", 61)}}},
+	} {
+		if rec := do(h, "POST", "/pedidos", tc.form, false); rec.Code != http.StatusUnprocessableEntity {
+			t.Errorf("%s: code %d", tc.name, rec.Code)
+		}
+	}
+}
+
+func TestOrderFlow(t *testing.T) {
+	s, h, prod := dbServer(t)
+	ctx := context.Background()
+
+	rec := do(h, "POST", "/pedidos", newOrderForm("Maria"), false)
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/pedidos/1" {
+		t.Fatalf("create: %d %q", rec.Code, rec.Header().Get("Location"))
+	}
+
+	// Sending an empty order to the kitchen is refused.
+	if rec := do(h, "POST", "/pedidos/1/status", url.Values{"para": {"cozinha"}}, false); rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("empty to kitchen: %d", rec.Code)
+	}
+
+	rec = do(h, "POST", "/pedidos/1/itens", url.Values{"produto": {itoa(prod)}}, true)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "R$ 15,00") || !strings.Contains(rec.Body.String(), `id="resumo"`) {
+		t.Fatalf("add item: %d %s", rec.Code, rec.Body)
+	}
+	do(h, "POST", "/pedidos/1/itens", url.Values{"produto": {itoa(prod)}}, true)
+	o, _ := s.DB.GetOrder(ctx, 1)
+	if len(o.Items) != 1 || o.Items[0].Qty != 2 || o.TotalCents != 3000 {
+		t.Fatalf("after adds: %+v", o)
+	}
+	line := "/pedidos/1/itens/" + itoa(o.Items[0].ID)
+
+	for _, q := range []string{"-1", "1000", "x"} {
+		req := httptest.NewRequest("PATCH", line, strings.NewReader("qty="+q))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("HX-Request", "true")
+		req.Header.Set("HX-Target", "pedido-itens")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		// The error shows in the toast and, since the sheet covers the toast, in the sheet too.
+		if b := rec.Body.String(); strings.Count(b, "Quantidade") != 2 || !strings.Contains(b, `id="sheet-error"`) {
+			t.Errorf("qty %q: %s", q, b)
+		}
+	}
+	if rec := do(h, "PATCH", line, url.Values{"qty": {"3"}}, true); rec.Code != http.StatusOK {
+		t.Fatalf("patch: %d", rec.Code)
+	}
+	// Without htmx the stepper form posts and is redirected back to the editor.
+	if rec := do(h, "POST", line, url.Values{"qty": {"3"}}, false); rec.Code != http.StatusSeeOther {
+		t.Fatalf("post fallback: %d", rec.Code)
+	}
+
+	msg := do(h, "GET", "/pedidos/1/mensagem/confirmacao", nil, false).Body.String()
+	if want := "3x Hot roll — R$ 45,00\n\n*Total: R$ 45,00*"; !strings.Contains(msg, want) {
+		t.Fatalf("message %q lacks %q", msg, want)
+	}
+	if rec := do(h, "GET", "/pedidos/1/mensagem/outra", nil, false); rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown message: %d", rec.Code)
+	}
+
+	rec = do(h, "POST", "/pedidos/1/status", url.Values{"para": {"cozinha"}}, false)
+	if rec.Header().Get("Location") != "/pedidos/1/imprimir" {
+		t.Fatalf("to kitchen: %d %q", rec.Code, rec.Header().Get("Location"))
+	}
+	// Items are locked once in the kitchen; htmx gets a toast instead of a swap.
+	rec = do(h, "PATCH", line, url.Values{"qty": {"1"}}, true)
+	if rec.Header().Get("HX-Reswap") != "none" || !strings.Contains(rec.Body.String(), "pedido aberto") {
+		t.Fatalf("edit in kitchen: %s", rec.Body)
+	}
+	// pronto -> saiu is fine for delivery; skipping straight to fechado is not.
+	if rec := do(h, "POST", "/pedidos/1/status", url.Values{"para": {"fechado"}}, false); rec.Code != http.StatusConflict {
+		t.Fatalf("kitchen to closed: %d", rec.Code)
+	}
+	do(h, "POST", "/pedidos/1/status", url.Values{"para": {"pronto"}}, false)
+	do(h, "POST", "/pedidos/1/status", url.Values{"para": {"saiu"}}, false)
+	// Closing unpaid fails on the server.
+	if rec := do(h, "POST", "/pedidos/1/status", url.Values{"para": {"fechado"}}, false); rec.Code != http.StatusConflict ||
+		!strings.Contains(rec.Body.String(), "pagamento") {
+		t.Fatalf("close unpaid: %d", rec.Code)
+	}
+
+	page := do(h, "GET", "/", nil, false).Body.String()
+	if !strings.Contains(page, "Maria") || !strings.Contains(page, "Saiu p/ entrega") {
+		t.Fatalf("list lacks the order")
+	}
+
+	// Cancel, reopen, then the line can be deleted again.
+	if rec := do(h, "POST", "/pedidos/1/status", url.Values{"para": {"cancelado"}}, false); rec.Code != http.StatusConflict {
+		t.Fatalf("saiu to cancelado: %d", rec.Code) // only aberto, cozinha and pronto can be cancelled
+	}
+	do(h, "POST", "/pedidos", newOrderForm("Bia"), false)
+	for _, to := range []string{"cancelado", "aberto"} {
+		if rec := do(h, "POST", "/pedidos/2/status", url.Values{"para": {to}}, false); rec.Code != http.StatusSeeOther {
+			t.Fatalf("to %s: %d", to, rec.Code)
+		}
+	}
+	do(h, "POST", "/pedidos/2/itens", url.Values{"produto": {itoa(prod)}}, false)
+	o2, _ := s.DB.GetOrder(ctx, 2)
+	if rec := do(h, "DELETE", "/pedidos/2/itens/"+itoa(o2.Items[0].ID), nil, true); rec.Code != http.StatusOK {
+		t.Fatalf("delete: %d", rec.Code)
+	}
+	if o2, _ = s.DB.GetOrder(ctx, 2); len(o2.Items) != 0 {
+		t.Fatalf("line not deleted: %+v", o2.Items)
+	}
+}
+
+func TestConsumeAndSaiu(t *testing.T) {
+	s, h, prod := dbServer(t)
+	do(h, "POST", "/pedidos", newOrderForm("Ana"), false)
+	if rec := do(h, "POST", "/pedidos/1/consumo", url.Values{"consumo": {"local"}}, false); rec.Code != http.StatusSeeOther {
+		t.Fatalf("consume: %d", rec.Code)
+	}
+	if rec := do(h, "POST", "/pedidos/1/consumo", url.Values{"consumo": {"drive"}}, false); rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("bad consume: %d", rec.Code)
+	}
+	ctx := context.Background()
+	if err := s.DB.AddItem(ctx, 1, prod, 1, ""); err != nil {
+		t.Fatal(err)
+	}
+	for _, st := range []string{db.StatusKitchen, db.StatusReady} {
+		if err := s.DB.SetStatus(ctx, 1, st); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if rec := do(h, "POST", "/pedidos/1/status", url.Values{"para": {"saiu"}}, false); rec.Code != http.StatusConflict {
+		t.Fatalf("saiu for local: %d", rec.Code)
+	}
+}
+
+func TestBadIDs(t *testing.T) {
+	_, h, _ := dbServer(t)
+	for _, target := range []string{"/pedidos/0", "/pedidos/abc", "/pedidos/99", "/pedidos/99/imprimir"} {
+		if rec := do(h, "GET", target, nil, false); rec.Code != http.StatusNotFound {
+			t.Errorf("%s: %d", target, rec.Code)
+		}
+	}
+	if rec := do(h, "POST", "/pedidos/99/itens", url.Values{"produto": {"1"}}, false); rec.Code != http.StatusNotFound {
+		t.Errorf("add to missing order: %d", rec.Code)
+	}
+}
+
+func TestMessages(t *testing.T) {
+	o := db.Order{ClientName: "Maria", Channel: "whatsapp", Consume: db.ConsumeLocal, Status: db.StatusReady, TotalCents: 3600,
+		Items: []db.OrderItem{{Qty: 2, UnitPriceCents: 1500, NameSnapshot: "Hot roll"}, {Qty: 1, UnitPriceCents: 600, NameSnapshot: "Coca-Cola Zero Lata"}}}
+	got, _ := orderMessage(o, msgConfirm)
+	want := "Olá, Maria! Confirmando seu pedido:\n\n2x Hot roll — R$ 30,00\n1x Coca-Cola Zero Lata — R$ 6,00\n\n*Total: R$ 36,00*"
+	if got != want {
+		t.Errorf("confirm:\n%s\nwant:\n%s", got, want)
+	}
+	if got, _ := orderMessage(o, msgReady); got != "Maria, seu pedido está pronto! 🍣" {
+		t.Errorf("ready: %q", got)
+	}
+	if got, _ := orderMessage(o, msgOut); got != "Maria, seu pedido saiu para entrega! 🛵" {
+		t.Errorf("out: %q", got)
+	}
+	if n := len(copyMessages(o)); n != 2 {
+		t.Errorf("copy messages for ready local: %d", n)
+	}
+	o.Channel = "balcao"
+	if n := len(copyMessages(o)); n != 0 {
+		t.Errorf("balcão gets messages: %d", n)
+	}
+}
+
+func itoa(n int64) string { return strconv.FormatInt(n, 10) }
