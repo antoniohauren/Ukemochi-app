@@ -230,7 +230,7 @@ templ orderSummaryBar(o db.Order, oob bool) {
 		}
 		class="fixed inset-x-0 bottom-0 z-20 mx-auto grid max-w-lg p-4 pb-[max(1rem,env(safe-area-inset-bottom))]"
 	>
-		@Button("primary", templ.Attributes{"type": "button", "onclick": "document.getElementById('pedido-sheet').showModal()"}) {
+		@Button("primary", templ.Attributes{"type": "button", "onclick": templ.JSUnsafeFuncCall("document.getElementById('pedido-sheet').showModal()")}) {
 			<span>Ver pedido · { strconv.FormatInt(itemCount(o), 10) } itens</span>
 			<span class="tabular-nums">{ money.Format(o.TotalCents) }</span>
 		}
@@ -342,7 +342,7 @@ templ ErrorPage(msg string) {
 			@Card() {
 				<p role="alert" class="text-lg font-semibold text-danger">{ msg }</p>
 			}
-			@Button("secondary", templ.Attributes{"type": "button", "onclick": "history.back()"}) {
+			@Button("secondary", templ.Attributes{"type": "button", "onclick": templ.JSUnsafeFuncCall("history.back()")}) {
 				Voltar
 			}
 			@LinkButton("ghost", "/") {

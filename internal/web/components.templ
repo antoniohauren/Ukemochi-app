@@ -179,7 +179,7 @@ templ DevUI() {
 			<section class="space-y-3">
 				<h2 class="font-semibold text-ink-muted">Bottom sheet e toast</h2>
 				<div class="flex flex-wrap gap-2">
-					@Button("secondary", templ.Attributes{"type": "button", "onclick": "document.getElementById('demo-sheet').showModal()"}) {
+					@Button("secondary", templ.Attributes{"type": "button", "onclick": templ.JSUnsafeFuncCall("document.getElementById('demo-sheet').showModal()")}) {
 						Abrir pedido
 					}
 					@Button("secondary", templ.Attributes{"type": "button", "hx-get": "/dev/ui/toast", "hx-swap": "none"}) {
