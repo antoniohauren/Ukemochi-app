@@ -5,7 +5,7 @@
 - `channel`: `whatsapp` or `balcao` (in-house).
 - `consume`: `entrega` (delivery) or `local` (eat in).
 - `status`: see the state machine below.
-- `payment`: `pix`, `credito`, `debito`, `dinheiro`, or empty while unpaid.
+- payment: zero or more parts, each with a method (`pix`, `credito`, `debito`, `dinheiro`) and an amount. Unpaid with no parts, paid when the parts add up to the total.
 
 ## State machine
 
@@ -29,9 +29,10 @@ fechado, cancelado -> aberto   (reopen)
 
 ### Rules
 
-- Payment is independent of status. An order can be marked paid at any status except `fechado` and `cancelado`.
+- Payment is independent of status. Parts can be added or removed at any status except `fechado` and `cancelado`.
+- The bill can be split: pay all that is left (the default), a typed amount, or an equal share picked with **Dividir entre** (number of people). Each part has its own method. A part can't be more than what is left.
 - A `fechado` or `cancelado` order can be reopened at any time. It goes back to `aberto`, keeps its payment and leaves the daily report until it is closed again.
-- An order can't be closed while it is unpaid.
+- An order can't be closed until its parts add up to the total exactly (none missing, none over after items were removed).
 - `saiu` exists only when `consume = entrega`.
 - Items can be edited only while the status is `aberto`. Reprinting the ticket is allowed at any status.
 

@@ -53,8 +53,8 @@ func TestMigrateIdempotent(t *testing.T) {
 	}
 	var v int
 	d.QueryRow("PRAGMA user_version").Scan(&v)
-	if v != 2 {
-		t.Fatalf("user_version = %d, want 2", v)
+	if v != 3 {
+		t.Fatalf("user_version = %d, want 3", v)
 	}
 	var fk int
 	d.QueryRow("PRAGMA foreign_keys").Scan(&fk)
@@ -147,7 +147,7 @@ func TestAddItemRefused(t *testing.T) {
 	if err := d.SetItemQty(ctx, other, o.Items[0].ID, 2); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("item of another order: %v", err)
 	}
-	if err := d.SetPayment(ctx, id, "cheque", 0); !errors.Is(err, ErrInvalid) {
+	if err := d.AddPayment(ctx, id, "cheque", 100, 0); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("bad payment method: %v", err)
 	}
 	if err := d.AddItem(ctx, id, 999, 1, ""); !errors.Is(err, ErrNotFound) {
@@ -203,41 +203,40 @@ func TestStatusTransitions(t *testing.T) {
 		if err := d.SetStatus(ctx, id, StatusClosed); !errors.Is(err, ErrUnpaid) {
 			t.Fatalf("closing unpaid: %v", err)
 		}
-		if err := d.SetPayment(ctx, id, "dinheiro", 5000); err != nil {
+		if err := d.AddPayment(ctx, id, "dinheiro", 600, 5000); err != nil {
 			t.Fatal(err)
 		}
 		if err := d.SetStatus(ctx, id, StatusClosed); err != nil {
 			t.Fatal(err)
 		}
 		o, _ := d.GetOrder(ctx, id)
-		if o.Status != StatusClosed || o.ClosedAt == "" || o.CashGivenCents != 5000 || o.PaidAt == "" {
+		if o.Status != StatusClosed || o.ClosedAt == "" || len(o.Payments) != 1 || o.Payments[0].CashGivenCents != 5000 || o.Payments[0].PaidAt == "" {
 			t.Fatalf("closed order = %+v", o)
 		}
-		if err := d.SetPayment(ctx, id, "pix", 0); !errors.Is(err, ErrBadTransition) {
-			t.Fatalf("pay closed order: %v", err)
+		if err := d.DeletePayment(ctx, id, o.Payments[0].ID); !errors.Is(err, ErrBadTransition) {
+			t.Fatalf("unpay closed order: %v", err)
 		}
 		if err := d.SetStatus(ctx, id, StatusOpen); err != nil {
 			t.Fatalf("reopen closed: %v", err)
 		}
 		o, _ = d.GetOrder(ctx, id)
-		if o.Status != StatusOpen || o.ClosedAt != "" || o.Payment != "dinheiro" {
+		if o.Status != StatusOpen || o.ClosedAt != "" || !o.Paid() || o.Payments[0].Method != "dinheiro" {
 			t.Fatalf("reopened order = %+v", o)
 		}
-		if err := d.SetPayment(ctx, id, "pix", 0); err != nil {
-			t.Fatalf("pay reopened order: %v", err)
+		if err := d.DeletePayment(ctx, id, o.Payments[0].ID); err != nil {
+			t.Fatalf("unpay reopened order: %v", err)
 		}
 	})
 
-	t.Run("cash short of the total refuses close", func(t *testing.T) {
+	t.Run("parts short of the total refuse close", func(t *testing.T) {
 		id := order(ConsumeLocal)
 		d.SetStatus(ctx, id, StatusKitchen)
 		d.SetStatus(ctx, id, StatusReady)
-		// Cash recorded before items were added no longer covers the total.
-		if _, err := d.Exec(`UPDATE orders SET payment = 'dinheiro', paid_at = '2026-01-01T00:00:00Z', cash_given_cents = 1 WHERE id = ?`, id); err != nil {
+		if err := d.AddPayment(ctx, id, "pix", 100, 0); err != nil {
 			t.Fatal(err)
 		}
-		if err := d.SetStatus(ctx, id, StatusClosed); !errors.Is(err, ErrCashShort) {
-			t.Fatalf("close with short cash: %v", err)
+		if err := d.SetStatus(ctx, id, StatusClosed); !errors.Is(err, ErrPaidMismatch) {
+			t.Fatalf("close with a part left: %v", err)
 		}
 	})
 
@@ -248,12 +247,12 @@ func TestStatusTransitions(t *testing.T) {
 		if err := d.SetStatus(ctx, id, StatusOut); !errors.Is(err, ErrBadTransition) {
 			t.Fatalf("saiu for local: %v", err)
 		}
-		d.SetPayment(ctx, id, "credito", 999)
+		d.AddPayment(ctx, id, "credito", 600, 999)
 		if err := d.SetStatus(ctx, id, StatusClosed); err != nil {
 			t.Fatal(err)
 		}
-		if o, _ := d.GetOrder(ctx, id); o.CashGivenCents != 0 {
-			t.Fatalf("cash stored for credito: %d", o.CashGivenCents)
+		if o, _ := d.GetOrder(ctx, id); o.Payments[0].CashGivenCents != 0 {
+			t.Fatalf("cash stored for credito: %d", o.Payments[0].CashGivenCents)
 		}
 	})
 

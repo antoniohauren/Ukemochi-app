@@ -59,9 +59,6 @@ CREATE TABLE orders (
   phone_last4      TEXT,
   status           TEXT NOT NULL DEFAULT 'aberto'
                    CHECK (status IN ('aberto','cozinha','pronto','saiu','fechado','cancelado')),
-  payment          TEXT CHECK (payment IN ('pix','credito','debito','dinheiro')),
-  paid_at          TEXT,
-  cash_given_cents INTEGER,
   notes            TEXT NOT NULL DEFAULT '',
   address          TEXT NOT NULL DEFAULT '',  -- required for entrega (migration 2)
   created_at       TEXT NOT NULL,
@@ -78,23 +75,38 @@ CREATE TABLE order_items (
   note             TEXT NOT NULL DEFAULT ''
 );
 
+-- Payment parts (migration 3, decision 009). One row pays the whole bill; several split it.
+CREATE TABLE order_payments (
+  id               INTEGER PRIMARY KEY,
+  order_id         INTEGER NOT NULL REFERENCES orders(id),
+  method           TEXT NOT NULL CHECK (method IN ('pix','credito','debito','dinheiro')),
+  amount_cents     INTEGER NOT NULL CHECK (amount_cents >= 0),
+  cash_given_cents INTEGER CHECK (cash_given_cents >= amount_cents),  -- dinheiro only, optional
+  paid_at          TEXT NOT NULL
+);
+
 CREATE INDEX orders_created_at ON orders(created_at);
 CREATE INDEX order_items_order ON order_items(order_id);
+CREATE INDEX order_payments_order ON order_payments(order_id);
 ```
 
 `unit_price_cents` and `name_snapshot` are copied from the product when the item is added. Later menu changes don't alter past orders or reports.
 
-The order total is computed from `order_items` (`SUM(qty * unit_price_cents)`), not stored.
+The order total is computed from `order_items` (`SUM(qty * unit_price_cents)`), not stored. What is paid is `SUM(order_payments.amount_cents)`; an order is paid when that equals the total.
+
+Migration 3 moved each order's old `payment`, `paid_at` and `cash_given_cents` into one `order_payments` row for the order's total, then dropped those columns.
 
 ## Daily report query
 
 ```sql
-SELECT o.payment, COUNT(DISTINCT o.id) AS orders,
-       SUM(oi.qty * oi.unit_price_cents) AS total_cents
-FROM orders o JOIN order_items oi ON oi.order_id = o.id
+SELECT op.method, COUNT(DISTINCT o.id) AS orders,
+       SUM(op.amount_cents) AS total_cents
+FROM orders o JOIN order_payments op ON op.order_id = o.id
 WHERE o.status = 'fechado' AND o.closed_at >= ? AND o.closed_at < ?
-GROUP BY o.payment;
+GROUP BY op.method;
 ```
+
+The day's order count and total come from the per-channel query over `order_items`, since a split order shows up under more than one method.
 
 The bounds are the start and end of the local day (`America/Sao_Paulo`) converted to UTC.
 

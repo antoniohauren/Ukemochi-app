@@ -58,3 +58,27 @@ CREATE INDEX order_items_order ON order_items(order_id);
 -- migrate: 2
 -- Delivery address, required by the app when consume is entrega.
 ALTER TABLE orders ADD COLUMN address TEXT NOT NULL DEFAULT '';
+
+-- migrate: 3
+-- Split bills: an order is paid in one or more parts, each with its own method and amount.
+-- Existing payments become one part for the order's total; cash that no longer covered it is dropped.
+CREATE TABLE order_payments (
+  id               INTEGER PRIMARY KEY,
+  order_id         INTEGER NOT NULL REFERENCES orders(id),
+  method           TEXT NOT NULL CHECK (method IN ('pix','credito','debito','dinheiro')),
+  amount_cents     INTEGER NOT NULL CHECK (amount_cents >= 0),
+  cash_given_cents INTEGER CHECK (cash_given_cents >= amount_cents),
+  paid_at          TEXT NOT NULL
+);
+
+CREATE INDEX order_payments_order ON order_payments(order_id);
+
+INSERT INTO order_payments (order_id, method, amount_cents, cash_given_cents, paid_at)
+SELECT id, payment, total, CASE WHEN cash >= total THEN cash END, COALESCE(paid_at, created_at)
+FROM (SELECT o.id, o.payment, o.cash_given_cents AS cash, o.paid_at, o.created_at,
+        (SELECT COALESCE(SUM(qty * unit_price_cents), 0) FROM order_items WHERE order_id = o.id) AS total
+      FROM orders o WHERE o.payment IS NOT NULL);
+
+ALTER TABLE orders DROP COLUMN payment;
+ALTER TABLE orders DROP COLUMN paid_at;
+ALTER TABLE orders DROP COLUMN cash_given_cents;

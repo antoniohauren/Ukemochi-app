@@ -84,10 +84,23 @@ func ticketText(o db.Order, compact bool) string {
 	}
 	add(sep)
 	add(leftRight("TOTAL", money.Format(o.TotalCents))...)
-	if o.Payment != "" {
-		add(leftRight("PAGO", paymentLabels[o.Payment])...)
-	} else {
+	var paid int64
+	for _, p := range o.Payments {
+		paid += p.AmountCents
+	}
+	switch {
+	case len(o.Payments) == 0:
 		add("", center("A PAGAR"))
+	case len(o.Payments) == 1 && paid == o.TotalCents:
+		add(leftRight("PAGO", paymentLabels[o.Payments[0].Method])...)
+	default:
+		// A split bill lists each part, then what is still to pay.
+		for _, p := range o.Payments {
+			add(leftRight("PAGO "+paymentLabels[p.Method], money.Format(p.AmountCents))...)
+		}
+		if paid < o.TotalCents {
+			add(leftRight("A PAGAR", money.Format(o.TotalCents-paid))...)
+		}
 	}
 	if o.Notes != "" {
 		add(wrap("Obs: " + o.Notes)...)

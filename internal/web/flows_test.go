@@ -75,7 +75,7 @@ func TestFlows(t *testing.T) {
 	step("GET", o3+"/mensagem/pronto", nil, http.StatusOK)
 	// saiu does not exist for eat-in orders.
 	step("POST", o3+"/status", url.Values{"para": {"saiu"}}, http.StatusConflict)
-	step("POST", o3+"/pagamento", url.Values{"metodo": {"dinheiro"}, "valor": {"20"}}, http.StatusSeeOther)
+	step("POST", o3+"/pagamento", url.Values{"metodo": {"dinheiro"}, "recebido": {"20"}}, http.StatusSeeOther)
 	status(o3, "fechado")
 
 	rec := adminDo(h, s, "GET", "/admin/relatorio", nil)

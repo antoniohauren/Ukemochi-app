@@ -45,8 +45,10 @@ Go 1.22 `http.ServeMux` patterns.
 | `PATCH /pedidos/{id}/itens/{item}`  | Change qty or note                      |
 | `DELETE /pedidos/{id}/itens/{item}` | Remove item                             |
 | `POST /pedidos/{id}/status`         | Move to the next status                 |
-| `POST /pedidos/{id}/pagamento`      | Record payment method and cash given    |
-| `GET /pedidos/{id}/troco?valor=`    | Change calculation (htmx fragment)      |
+| `POST /pedidos/{id}/pagamento`      | Add a payment part: `metodo`, `valor` (empty = all that is left), `recebido` (cash) |
+| `DELETE /pedidos/{id}/pagamentos/{pagamento}` | Remove a payment part (`POST` without htmx) |
+| `POST /pedidos/{id}/consumo`        | Switch entrega / local, with the address |
+| `GET /pedidos/{id}/troco?valor=&recebido=` | Change calculation (htmx fragment) |
 | `GET /pedidos/{id}/mensagem/{tipo}` | Message text: `confirmacao`, `pronto`, `saiu` |
 | `GET /pedidos/{id}/imprimir`        | 58mm ticket page                        |
 | `POST /pedidos/{id}/imprimir`       | Print on the Bluetooth printer (falls back to the ticket page) |
@@ -60,7 +62,8 @@ Status transitions are checked on the server. See the rules in [flows](flows.md)
 
 - **Order list:** open orders, newest first, with status color and total. Large **Novo pedido** button.
 - **Order editor:** category tabs, then a product grid. Tap to add. The current order sits in a bottom sheet with quantities, total and actions.
-- **Payment:** method buttons. When **Dinheiro** is chosen, a numeric field shows the change live.
+- **Payment:** a sheet opened from the actions sheet. It lists the parts paid so far and what is left, then method buttons, a **Dividir entre** people picker (− N +, 1 to 20, like the quantity picker) and the amount, which holds one share (all that is left for 1 person). The picker keeps its value between parts. When **Dinheiro** is chosen, a cash field shows the change live. **Voltar** returns to the actions sheet.
+- **Entrega:** a sheet opened from the actions sheet with the address and the **Entrega** / **Consumir no local** buttons. Saving returns to the actions sheet.
 - **Admin report:** one day, with counts and totals per payment method and channel, the top items, and a **Copiar resumo** button.
 
 ## Copy to clipboard

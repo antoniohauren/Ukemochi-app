@@ -49,3 +49,11 @@ Only templ, the SQLite driver, htmx and Tailwind (build time only).
 - **Why:** fast to build mobile-first UI with utility classes in templ files. The standalone binary needs no Node or npm, and the output is one static CSS file.
 - **Trade-off:** the build has an extra step, and `static/app.css` must be regenerated after class changes.
 - **Rule:** the print ticket uses its own `print.css`, not Tailwind, so the 58mm layout stays predictable.
+
+## 009: Split bills as payment parts
+
+An order's payment is a list of parts in `order_payments`, each with its own method and amount. The amount defaults to what is left, a typed amount pays part of it, and the **Dividir entre** people picker fills an equal share (`ceil(total / N)`, the last person pays what is left).
+
+- **Why:** tables often split the bill, by person or by method (part PIX, part cash). One method per order could not record that, and the report would put the whole total under one method.
+- **Rule:** a part can't exceed what is left, and an order closes only when its parts add up to the total exactly. So the report's per-method totals always add up to the day's total.
+- **Trade-off:** a split order counts once under each method it used, so the per-method order counts can add up to more than the number of orders.

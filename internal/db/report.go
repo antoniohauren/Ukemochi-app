@@ -37,22 +37,25 @@ const topItemsLimit = 10
 func (d *DB) DailyReport(ctx context.Context, from, to time.Time) (Report, error) {
 	var rep Report
 	lo, hi := from.UTC().Format(timeFormat), to.UTC().Format(timeFormat)
-	group := func(col string) ([]ReportRow, error) {
-		// col is one of two fixed column names, never input.
-		return queryAll(ctx, d, `SELECT COALESCE(o.`+col+`, ''), COUNT(DISTINCT o.id), SUM(oi.qty * oi.unit_price_cents)
-			FROM orders o JOIN order_items oi ON oi.order_id = o.id
-			WHERE o.status = 'fechado' AND o.closed_at >= ? AND o.closed_at < ?
-			GROUP BY 1 ORDER BY 3 DESC, 1`,
-			func(r *sql.Rows, row *ReportRow) error { return r.Scan(&row.Key, &row.Orders, &row.TotalCents) }, lo, hi)
-	}
+	scanRow := func(r *sql.Rows, row *ReportRow) error { return r.Scan(&row.Key, &row.Orders, &row.TotalCents) }
 	var err error
-	if rep.ByPayment, err = group("payment"); err != nil {
+	// A split bill counts once under each method it used, with that part's amount.
+	// Closed orders are paid exactly, so the methods add up to the day's total.
+	rep.ByPayment, err = queryAll(ctx, d, `SELECT op.method, COUNT(DISTINCT o.id), SUM(op.amount_cents)
+		FROM orders o JOIN order_payments op ON op.order_id = o.id
+		WHERE o.status = 'fechado' AND o.closed_at >= ? AND o.closed_at < ?
+		GROUP BY 1 ORDER BY 3 DESC, 1`, scanRow, lo, hi)
+	if err != nil {
 		return rep, err
 	}
-	if rep.ByChannel, err = group("channel"); err != nil {
+	rep.ByChannel, err = queryAll(ctx, d, `SELECT o.channel, COUNT(DISTINCT o.id), SUM(oi.qty * oi.unit_price_cents)
+		FROM orders o JOIN order_items oi ON oi.order_id = o.id
+		WHERE o.status = 'fechado' AND o.closed_at >= ? AND o.closed_at < ?
+		GROUP BY 1 ORDER BY 3 DESC, 1`, scanRow, lo, hi)
+	if err != nil {
 		return rep, err
 	}
-	for _, row := range rep.ByPayment {
+	for _, row := range rep.ByChannel {
 		rep.Orders += row.Orders
 		rep.TotalCents += row.TotalCents
 	}

@@ -197,10 +197,19 @@ func TestConsumeAndSaiu(t *testing.T) {
 	if body := do(h, "GET", "/pedidos/1/imprimir", nil, false).Body.String(); !strings.Contains(body, "Rua Nova, 10") {
 		t.Error("ticket should print the delivery address")
 	}
-	// With htmx the actions sheet is swapped in place (so it stays open) and the header follows.
+	// The delivery settings live in their own sheet, opened from the actions sheet, with a Voltar.
+	page := do(h, "GET", "/pedidos/1", nil, false).Body.String()
+	if !strings.Contains(page, `id="consumo-sheet"`) || !strings.Contains(page, "consumo-sheet&#39;).showModal()") ||
+		!strings.Contains(page, "document.getElementById(&#39;consumo-sheet&#39;).close(); document.getElementById(&#39;acoes-sheet&#39;).showModal()") {
+		t.Error("delivery settings should live in their own sheet with a Voltar")
+	}
+	if strings.Count(page, `name="endereco"`) != 1 {
+		t.Error("the address field should only be in the delivery sheet")
+	}
+	// With htmx the delivery sheet is swapped in place, and the actions sheet and header follow out of band.
 	rec := do(h, "POST", "/pedidos/1/consumo", url.Values{"consumo": {"local"}}, true)
-	if b := rec.Body.String(); rec.Code != http.StatusOK || rec.Header().Get("HX-Redirect") != "" ||
-		!strings.Contains(b, `id="acoes"`) || !strings.Contains(b, `id="pedido-cabecalho" hx-swap-oob="true"`) {
+	if b := rec.Body.String(); rec.Code != http.StatusOK || rec.Header().Get("HX-Redirect") != "" || rec.Header().Get("HX-Trigger") != "consumo-salvo" || !strings.HasPrefix(b, `<div id="consumo"`) ||
+		!strings.Contains(b, `id="acoes" hx-swap-oob="true"`) || !strings.Contains(b, `id="pedido-cabecalho" hx-swap-oob="true"`) {
 		t.Fatalf("htmx consume: %d %v %s", rec.Code, rec.Header(), b)
 	}
 	ctx := context.Background()

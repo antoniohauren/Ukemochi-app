@@ -45,17 +45,23 @@ func TestChangeText(t *testing.T) {
 
 func TestChangeEndpoint(t *testing.T) {
 	s, h, prod := dbServer(t)
-	id := orderWith(t, s, prod, 2)
-	rec := do(h, "GET", orderURL(id)+"/troco?valor=50", nil, true)
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "R$ 20,00") || !strings.Contains(rec.Body.String(), "text-ok") {
-		t.Fatalf("code %d, body %s", rec.Code, rec.Body)
+	id := orderWith(t, s, prod, 2) // R$ 30,00
+	for _, tc := range []struct{ query, want string }{
+		{"recebido=50", "R$ 20,00"},          // against all that is left
+		{"valor=10&recebido=50", "R$ 40,00"}, // against this part
+		{"valor=x&recebido=50", "Valor a pagar inválido"},
+	} {
+		rec := do(h, "GET", orderURL(id)+"/troco?"+tc.query, nil, true)
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), tc.want) {
+			t.Errorf("%s: code %d, body %s", tc.query, rec.Code, rec.Body)
+		}
 	}
-	if rec := do(h, "GET", "/pedidos/999/troco?valor=1", nil, true); !strings.Contains(rec.Body.String(), "Não encontrado") {
+	if rec := do(h, "GET", "/pedidos/999/troco?recebido=1", nil, true); !strings.Contains(rec.Body.String(), "Não encontrado") {
 		t.Errorf("missing order: %s", rec.Body)
 	}
 }
 
-func TestSetPayment(t *testing.T) {
+func TestPayment(t *testing.T) {
 	s, h, prod := dbServer(t)
 	ctx := context.Background()
 	id := orderWith(t, s, prod, 2) // R$ 30,00
@@ -72,6 +78,14 @@ func TestSetPayment(t *testing.T) {
 	if !strings.Contains(page, `id="pagamento-sheet"`) || !strings.Contains(page, "pagamento-sheet&#39;).showModal()") {
 		t.Error("payment form should live in its own sheet, opened from the order panel")
 	}
+	if !strings.Contains(page, "document.getElementById(&#39;pagamento-sheet&#39;).close(); document.getElementById(&#39;acoes-sheet&#39;).showModal()") {
+		t.Error("payment sheet should have a Voltar back to the actions sheet")
+	}
+	for _, want := range []string{`name="pessoas" value="1"`, `data-total="3000"`, `data-split-step="+"`, `name="valor" value="30,00"`} {
+		if !strings.Contains(page, want) {
+			t.Errorf("payment sheet lacks the people picker: %s", want)
+		}
+	}
 
 	// An error from the payment sheet is repeated inside it, since the sheet covers the toast.
 	req := httptest.NewRequest("POST", orderURL(id)+"/pagamento", strings.NewReader("metodo=cheque"))
@@ -84,53 +98,87 @@ func TestSetPayment(t *testing.T) {
 		t.Errorf("sheet error: %s", b)
 	}
 
-	rec := do(h, "POST", orderURL(id)+"/pagamento", url.Values{"metodo": {"cheque"}}, true)
-	if rec.Code != http.StatusOK || rec.Header().Get("HX-Reswap") != "none" || !strings.Contains(rec.Body.String(), "Escolha a forma") {
-		t.Errorf("htmx error: code %d, headers %v, body %s", rec.Code, rec.Header(), rec.Body)
-	}
-
 	for _, tc := range []struct {
 		name string
 		form url.Values
 	}{
 		{"no method", url.Values{}},
 		{"bad method", url.Values{"metodo": {"cheque"}}},
-		{"bad cash", url.Values{"metodo": {"dinheiro"}, "valor": {"12,345"}}},
-		{"cash short", url.Values{"metodo": {"dinheiro"}, "valor": {"29,99"}}},
+		{"bad amount", url.Values{"metodo": {"pix"}, "valor": {"12,345"}}},
+		{"zero amount", url.Values{"metodo": {"pix"}, "valor": {"0"}}},
+		{"over the total", url.Values{"metodo": {"pix"}, "valor": {"30,01"}}},
+		{"bad cash", url.Values{"metodo": {"dinheiro"}, "recebido": {"12,345"}}},
+		{"cash short", url.Values{"metodo": {"dinheiro"}, "recebido": {"29,99"}}},
+		{"cash short of the part", url.Values{"metodo": {"dinheiro"}, "valor": {"10"}, "recebido": {"9"}}},
 	} {
 		if rec := do(h, "POST", orderURL(id)+"/pagamento", tc.form, false); rec.Code != http.StatusUnprocessableEntity {
 			t.Errorf("%s: code %d", tc.name, rec.Code)
 		}
 	}
-	if o, _ := s.DB.GetOrder(ctx, id); o.Payment != "" {
-		t.Fatalf("payment recorded after invalid input: %q", o.Payment)
+	if o, _ := s.DB.GetOrder(ctx, id); o.PaymentCount != 0 {
+		t.Fatalf("payment recorded after invalid input: %+v", o.Payments)
 	}
 
-	rec = do(h, "POST", orderURL(id)+"/pagamento", url.Values{"metodo": {"dinheiro"}, "valor": {"50"}}, true)
-	if rec.Header().Get("HX-Redirect") != orderURL(id) {
-		t.Fatalf("code %d, headers %v, body %s", rec.Code, rec.Header(), rec.Body)
+	// Three people split it: the picker stays on 3 after the first share, so the next amount is a share too.
+	other := orderWith(t, s, prod, 2)
+	rec := do(h, "POST", orderURL(other)+"/pagamento", url.Values{"metodo": {"pix"}, "valor": {"10"}, "pessoas": {"3"}}, true)
+	if b := rec.Body.String(); !strings.Contains(b, `name="pessoas" value="3"`) || !strings.Contains(b, `name="valor" value="10,00"`) ||
+		!strings.Contains(b, "R$ 20,00") {
+		t.Fatalf("split share: %s", b)
 	}
-	o, _ := s.DB.GetOrder(ctx, id)
-	if o.Payment != "dinheiro" || o.CashGivenCents != 5000 {
-		t.Fatalf("payment = %q, cash = %d", o.Payment, o.CashGivenCents)
+	for v, want := range map[string]int64{"": 1, "x": 1, "0": 1, "4": 4, "99": maxPeople} {
+		if got := parsePeople(v); got != want {
+			t.Errorf("parsePeople(%q) = %d, want %d", v, got, want)
+		}
+	}
+
+	// Split in two: R$ 12,00 by PIX, then the rest in cash. The sheet stays open between parts.
+	rec = do(h, "POST", orderURL(id)+"/pagamento", url.Values{"metodo": {"pix"}, "valor": {"12"}}, true)
+	b := rec.Body.String()
+	if rec.Code != http.StatusOK || rec.Header().Get("HX-Redirect") != "" || !strings.Contains(b, `id="pagamento"`) ||
+		!strings.Contains(b, "Falta") || !strings.Contains(b, "R$ 18,00") || !strings.Contains(b, `id="acoes" hx-swap-oob="true"`) ||
+		!strings.Contains(b, "Pagamento registrado") {
+		t.Fatalf("first part: code %d, headers %v, body %s", rec.Code, rec.Header(), b)
+	}
+	if !strings.Contains(b, `name="valor" value="18,00"`) {
+		t.Error("amount field should default to what is left")
 	}
 	page = do(h, "GET", orderURL(id), nil, false).Body.String()
-	if !strings.Contains(page, "Troco R$ 20,00") || strings.Contains(page, "Registre o pagamento para fechar") {
-		t.Error("editor should show the change and an enabled close button")
+	if !strings.Contains(page, "Os pagamentos não batem com o total") {
+		t.Error("close button should explain a partial payment")
+	}
+	// An empty amount pays everything left.
+	if rec := do(h, "POST", orderURL(id)+"/pagamento", url.Values{"metodo": {"dinheiro"}, "recebido": {"20"}}, false); rec.Code != http.StatusSeeOther {
+		t.Fatalf("second part: code %d, body %s", rec.Code, rec.Body)
+	}
+	o, _ := s.DB.GetOrder(ctx, id)
+	if !o.Paid() || len(o.Payments) != 2 || o.Payments[1].AmountCents != 1800 || o.Payments[1].CashGivenCents != 2000 {
+		t.Fatalf("payments = %+v", o.Payments)
+	}
+	page = do(h, "GET", orderURL(id), nil, false).Body.String()
+	if !strings.Contains(page, "Troco R$ 2,00") || !strings.Contains(page, "Pago em 2 partes") || strings.Contains(page, "Registre o pagamento para fechar") {
+		t.Error("editor should show the parts, the change and an enabled close button")
+	}
+	if strings.Contains(page, `name="metodo"`) {
+		t.Error("a paid order should not offer another part")
+	}
+	if rec := do(h, "POST", orderURL(id)+"/pagamento", url.Values{"metodo": {"pix"}}, false); rec.Code != http.StatusUnprocessableEntity {
+		t.Errorf("paying a paid order: code %d", rec.Code)
 	}
 
-	// Cash that no longer covers the total (items added after reopening) is flagged.
-	if _, err := s.DB.Exec(`UPDATE orders SET cash_given_cents = 1000 WHERE id = ?`, id); err != nil {
-		t.Fatal(err)
+	// Removing a part, with htmx and without.
+	rec = do(h, "DELETE", paymentURL(id, o.Payments[1].ID), nil, true)
+	if b := rec.Body.String(); !strings.Contains(b, "Pagamento removido") || !strings.Contains(b, "R$ 18,00") {
+		t.Fatalf("remove part: %s", b)
 	}
-	if page := do(h, "GET", orderURL(id), nil, false).Body.String(); !strings.Contains(page, "Faltam R$ 20,00") {
-		t.Error("editor should flag cash short of the total")
+	if rec := do(h, "POST", paymentURL(id, o.Payments[0].ID), nil, false); rec.Code != http.StatusSeeOther {
+		t.Fatalf("remove part without htmx: code %d", rec.Code)
 	}
-
-	// Switching to card drops the cash amount.
-	do(h, "POST", orderURL(id)+"/pagamento", url.Values{"metodo": {"credito"}, "valor": {"50"}}, false)
-	if o, _ := s.DB.GetOrder(ctx, id); o.Payment != "credito" || o.CashGivenCents != 0 {
-		t.Fatalf("payment = %q, cash = %d", o.Payment, o.CashGivenCents)
+	if rec := do(h, "POST", paymentURL(id, 999), nil, false); rec.Code != http.StatusNotFound {
+		t.Errorf("remove missing part: code %d", rec.Code)
+	}
+	if o, _ := s.DB.GetOrder(ctx, id); o.PaymentCount != 0 {
+		t.Fatalf("payments left: %+v", o.Payments)
 	}
 
 	if err := s.DB.SetStatus(ctx, id, db.StatusCancelled); err != nil {
@@ -138,5 +186,29 @@ func TestSetPayment(t *testing.T) {
 	}
 	if rec := do(h, "POST", orderURL(id)+"/pagamento", url.Values{"metodo": {"pix"}}, false); rec.Code != http.StatusUnprocessableEntity {
 		t.Errorf("paying a cancelled order: code %d", rec.Code)
+	}
+}
+
+func TestPaymentOverpaidAfterReopen(t *testing.T) {
+	s, h, prod := dbServer(t)
+	ctx := context.Background()
+	id := orderWith(t, s, prod, 2) // R$ 30,00
+	if err := s.DB.AddPayment(ctx, id, "pix", 3000, 0); err != nil {
+		t.Fatal(err)
+	}
+	o, _ := s.DB.GetOrder(ctx, id)
+	if err := s.DB.SetItemQty(ctx, id, o.Items[0].ID, 1); err != nil {
+		t.Fatal(err)
+	}
+	page := do(h, "GET", orderURL(id), nil, false).Body.String()
+	if !strings.Contains(page, "Pago R$ 15,00 a mais") {
+		t.Error("editor should flag a payment above the total")
+	}
+	if err := s.DB.SetStatus(ctx, id, db.StatusKitchen); err != nil {
+		t.Fatal(err)
+	}
+	s.DB.SetStatus(ctx, id, db.StatusReady)
+	if rec := do(h, "POST", orderURL(id)+"/status", url.Values{"para": {db.StatusClosed}}, false); rec.Code != http.StatusConflict {
+		t.Errorf("closing an overpaid order: code %d", rec.Code)
 	}
 }

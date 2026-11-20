@@ -167,11 +167,17 @@ templ OrderEditorPage(o db.Order, menu []db.Category) {
 			}
 			if canPay(o) {
 				@BottomSheet("pagamento-sheet", "Pagamento") {
-					@PaymentPanel(o, false)
+					@PaymentPanel(o, 1, false)
+				}
+			}
+			if canChangeConsume(o) {
+				@BottomSheet("consumo-sheet", "Entrega") {
+					@ConsumePanel(o)
 				}
 			}
 		</main>
 		@copyScript()
+		@splitScript()
 	}
 }
 
@@ -205,10 +211,82 @@ templ orderHeader(o db.Order, oob bool) {
 	</header>
 }
 
-// ConsumeUpdate answers an htmx consume change: the actions sheet, which stays open, and the header.
+// ConsumeUpdate answers an htmx consume change: the delivery sheet, then the actions sheet and header out of band.
+// The handler's HX-Trigger (consumo-salvo) sends the delivery sheet back to the actions sheet.
 templ ConsumeUpdate(o db.Order) {
-	@orderActions(o, false)
+	@ConsumePanel(o)
+	@orderActions(o, true)
 	@orderHeader(o, true)
+}
+
+// PaymentUpdate answers an htmx payment change: the payment sheet, which stays open for the next part,
+// then the actions sheet (its summary and close button follow the payment) and a toast out of band.
+templ PaymentUpdate(o db.Order, people int64, toast string) {
+	@PaymentPanel(o, people, false)
+	@orderActions(o, true)
+	if toast != "" {
+		@Toast("ok", toast)
+	}
+}
+
+// consumeSummary shows how the order is consumed in the order panel, with a button that opens the delivery sheet.
+templ consumeSummary(o db.Order) {
+	<section class="space-y-3 rounded-xl border border-line p-3" aria-labelledby="consumo-titulo">
+		<h3 id="consumo-titulo" class="font-semibold">Entrega</h3>
+		if o.Consume == db.ConsumeDelivery {
+			<p>
+				Entrega
+				if o.Address != "" {
+					<span class="text-ink-muted">· { o.Address }</span>
+				}
+			</p>
+		} else {
+			<p>Consumir no local</p>
+		}
+		<div class="grid">
+			@Button("secondary", templ.Attributes{"type": "button", "onclick": templ.JSUnsafeFuncCall("this.closest('dialog')?.close(); document.getElementById('consumo-sheet').showModal()")}) {
+				Alterar entrega
+			}
+		</div>
+	</section>
+}
+
+// ConsumePanel is the body of the delivery sheet: the address and the entrega / local choice.
+templ ConsumePanel(o db.Order) {
+	<div id="consumo" class="space-y-3">
+		<p id="consumo-erro" role="alert" class="empty:hidden font-medium text-danger"></p>
+		<form
+			method="post"
+			action={ orderURL(o.ID) + "/consumo" }
+			hx-post={ orderURL(o.ID) + "/consumo" }
+			hx-target="#consumo"
+			hx-swap="outerHTML"
+			hx-on:consumo-salvo="document.getElementById('consumo-sheet').close(); document.getElementById('acoes-sheet').showModal()"
+			class="grid grid-cols-2 gap-2"
+		>
+			<label class="col-span-2 block">
+				<span class="mb-1 block text-sm font-medium text-ink-muted">Endereço (para entrega)</span>
+				<input type="text" name="endereco" value={ o.Address } maxlength="120" autocomplete="off" class={ fieldClass() }/>
+			</label>
+			@Button(selectedVariant(o.Consume == db.ConsumeDelivery), templ.Attributes{"type": "submit", "name": "consumo", "value": db.ConsumeDelivery}) {
+				Entrega
+			}
+			@Button(selectedVariant(o.Consume == db.ConsumeLocal), templ.Attributes{"type": "submit", "name": "consumo", "value": db.ConsumeLocal}) {
+				Consumir no local
+			}
+		</form>
+		@sheetBack("consumo-sheet", false)
+	</div>
+}
+
+// sheetBack closes a sheet opened from the actions sheet and reopens the actions sheet, pinned to the sheet's bottom.
+// primary highlights it when going back is the natural next step.
+templ sheetBack(sheetID string, primary bool) {
+	<div class="sticky bottom-0 grid bg-card pt-3 pb-[env(safe-area-inset-bottom)]">
+		@Button(selectedVariant(primary), templ.Attributes{"type": "button", "onclick": templ.JSUnsafeFuncCall("document.getElementById('" + sheetID + "').close(); document.getElementById('acoes-sheet').showModal()")}) {
+			Voltar
+		}
+	</div>
 }
 
 // copyScript makes every [data-copy] button copy the textarea it names.
@@ -239,7 +317,7 @@ templ copyScript() {
 templ ItemsUpdate(o db.Order, toast string) {
 	@orderItems(o)
 	@orderActions(o, true)
-	@PaymentPanel(o, true)
+	@PaymentPanel(o, 1, true)
 	if toast != "" {
 		@Toast("ok", toast)
 	}
@@ -294,26 +372,8 @@ templ orderActions(o db.Order, oob bool) {
 		class="space-y-4"
 	>
 		<p id="acoes-erro" role="alert" class="empty:hidden font-medium text-danger"></p>
-		if o.Status == db.StatusOpen || o.Status == db.StatusKitchen || o.Status == db.StatusReady {
-			<form
-				method="post"
-				action={ orderURL(o.ID) + "/consumo" }
-				hx-post={ orderURL(o.ID) + "/consumo" }
-				hx-target="#acoes"
-				hx-swap="outerHTML"
-				class="grid grid-cols-2 gap-2"
-			>
-				<label class="col-span-2 block">
-					<span class="mb-1 block text-sm font-medium text-ink-muted">Endereço (para entrega)</span>
-					<input type="text" name="endereco" value={ o.Address } maxlength="120" autocomplete="off" class={ fieldClass() }/>
-				</label>
-				@Button(selectedVariant(o.Consume == db.ConsumeDelivery), templ.Attributes{"type": "submit", "name": "consumo", "value": db.ConsumeDelivery}) {
-					Entrega
-				}
-				@Button(selectedVariant(o.Consume == db.ConsumeLocal), templ.Attributes{"type": "submit", "name": "consumo", "value": db.ConsumeLocal}) {
-					Consumir no local
-				}
-			</form>
+		if canChangeConsume(o) {
+			@consumeSummary(o)
 		}
 		@paymentSummary(o)
 		if msgs := copyMessages(o); len(msgs) > 0 {
@@ -349,7 +409,7 @@ templ orderActions(o db.Order, oob bool) {
 
 // statusForm is one status button. Fechar stays disabled until the order is paid.
 templ statusForm(o db.Order, to, label, variant string) {
-	{{ unpaid := to == db.StatusClosed && o.Payment == "" }}
+	{{ unpaid := to == db.StatusClosed && !o.Paid() }}
 	<form
 		method="post"
 		action={ orderURL(o.ID) + "/status" }
@@ -362,8 +422,10 @@ templ statusForm(o db.Order, to, label, variant string) {
 		@Button(variant, templ.Attributes{"type": "submit", "disabled": unpaid}) {
 			{ label }
 		}
-		if unpaid {
+		if unpaid && o.PaymentCount == 0 {
 			<p class="mt-1 text-center text-sm text-ink-muted">Registre o pagamento para fechar.</p>
+		} else if unpaid {
+			<p class="mt-1 text-center text-sm text-ink-muted">Os pagamentos não batem com o total.</p>
 		}
 	</form>
 }

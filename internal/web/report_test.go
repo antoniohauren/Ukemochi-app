@@ -53,7 +53,7 @@ func TestReportPage(t *testing.T) {
 	}
 
 	id := orderWith(t, s, prod, 3)
-	if err := s.DB.SetPayment(ctx, id, "pix", 0); err != nil {
+	if err := s.DB.AddPayment(ctx, id, "pix", 4500, 0); err != nil {
 		t.Fatal(err)
 	}
 	for _, st := range []string{db.StatusKitchen, db.StatusReady, db.StatusClosed} {

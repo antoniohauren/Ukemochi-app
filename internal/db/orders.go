@@ -4,14 +4,15 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"slices"
 	"time"
 )
 
 var (
 	ErrBadTransition = errors.New("mudança de status não permitida")
 	ErrUnpaid        = errors.New("pedido sem pagamento não pode ser fechado")
-	ErrCashShort     = errors.New("dinheiro recebido não cobre o total")
+	ErrPaidMismatch  = errors.New("pagamentos não batem com o total")
+	ErrOverpaid      = errors.New("valor maior que o que falta pagar")
+	ErrCashShort     = errors.New("dinheiro recebido não cobre o valor")
 	ErrNotEditable   = errors.New("itens só podem ser alterados com o pedido aberto")
 	ErrInvalid       = errors.New("valor inválido")
 	ErrEmptyOrder    = errors.New("pedido sem itens não pode ir para a cozinha")
@@ -32,7 +33,7 @@ const (
 	MaxQty = 999 // matches the CHECK on order_items.qty
 )
 
-// PaymentMethods lists the values allowed in orders.payment.
+// PaymentMethods lists the values allowed in order_payments.method.
 var PaymentMethods = []string{"pix", "credito", "debito", "dinheiro"}
 
 // timeFormat is fixed-width UTC so stored timestamps compare correctly as text.
@@ -47,16 +48,22 @@ type Order struct {
 	ClientName     string
 	PhoneLast4     string
 	Status         string
-	Payment        string // empty while unpaid
-	PaidAt         string
-	CashGivenCents int64 // 0 when not paid in cash or not given
 	Notes          string
 	Address        string // delivery address; empty for local
 	CreatedAt      string
 	ClosedAt       string
 	TotalCents     int64
+	PaidCents      int64       // sum of the payment parts
+	PaymentCount   int64       // number of payment parts
 	Items          []OrderItem // filled by GetOrder only
+	Payments       []Payment   // filled by GetOrder only, oldest first
 }
+
+// RemainingCents is what is still to pay; negative when the parts add up to more than the total.
+func (o Order) RemainingCents() int64 { return o.TotalCents - o.PaidCents }
+
+// Paid reports whether the payment parts cover the total exactly, so the order may close.
+func (o Order) Paid() bool { return o.PaymentCount > 0 && o.PaidCents == o.TotalCents }
 
 // ClientLabel is the client name with the phone's last 4 digits when known, e.g. "Antonio Carlos - 8888".
 func (o Order) ClientLabel() string {
@@ -114,13 +121,14 @@ func (d *DB) CreateOrder(ctx context.Context, o NewOrder) (int64, error) {
 }
 
 const orderCols = `o.id, o.channel, o.consume, o.client_name, COALESCE(o.phone_last4, ''), o.status,
-	COALESCE(o.payment, ''), COALESCE(o.paid_at, ''), COALESCE(o.cash_given_cents, 0), o.notes,
-	o.address, o.created_at, COALESCE(o.closed_at, ''),
-	(SELECT COALESCE(SUM(qty * unit_price_cents), 0) FROM order_items WHERE order_id = o.id)`
+	o.notes, o.address, o.created_at, COALESCE(o.closed_at, ''),
+	(SELECT COALESCE(SUM(qty * unit_price_cents), 0) FROM order_items WHERE order_id = o.id),
+	(SELECT COALESCE(SUM(amount_cents), 0) FROM order_payments WHERE order_id = o.id),
+	(SELECT COUNT(*) FROM order_payments WHERE order_id = o.id)`
 
 func scanOrder(r interface{ Scan(...any) error }, o *Order) error {
 	return r.Scan(&o.ID, &o.Channel, &o.Consume, &o.ClientName, &o.PhoneLast4, &o.Status,
-		&o.Payment, &o.PaidAt, &o.CashGivenCents, &o.Notes, &o.Address, &o.CreatedAt, &o.ClosedAt, &o.TotalCents)
+		&o.Notes, &o.Address, &o.CreatedAt, &o.ClosedAt, &o.TotalCents, &o.PaidCents, &o.PaymentCount)
 }
 
 // GetOrder returns one order with its items and total.
@@ -141,6 +149,10 @@ func (d *DB) GetOrder(ctx context.Context, id int64) (Order, error) {
 			return r.Scan(&it.ID, &it.OrderID, &it.ProductID, &it.Qty, &it.UnitPriceCents, &it.NameSnapshot, &it.Note,
 				&it.PrintableName)
 		}, id)
+	if err != nil {
+		return o, err
+	}
+	o.Payments, err = d.payments(ctx, id)
 	return o, err
 }
 
@@ -213,14 +225,16 @@ func (d *DB) SetItemQty(ctx context.Context, orderID, itemID, qty int64) error {
 }
 
 // SetStatus moves an order to a new status after checking the state machine in docs/flows.md.
-// Closing needs a recorded payment and sending to the kitchen needs at least one item.
+// Closing needs payment parts that add up to the total, and sending to the kitchen needs at least one item.
 func (d *DB) SetStatus(ctx context.Context, id int64, to string) error {
 	return d.tx(ctx, func(tx *sql.Tx) error {
-		var from, consume, payment string
-		var cash, total int64
-		err := tx.QueryRowContext(ctx, `SELECT status, consume, COALESCE(payment, ''), COALESCE(cash_given_cents, 0),
-			(SELECT COALESCE(SUM(qty * unit_price_cents), 0) FROM order_items WHERE order_id = orders.id)
-			FROM orders WHERE id = ?`, id).Scan(&from, &consume, &payment, &cash, &total)
+		var from, consume string
+		var total, paid, parts int64
+		err := tx.QueryRowContext(ctx, `SELECT status, consume,
+			(SELECT COALESCE(SUM(qty * unit_price_cents), 0) FROM order_items WHERE order_id = orders.id),
+			(SELECT COALESCE(SUM(amount_cents), 0) FROM order_payments WHERE order_id = orders.id),
+			(SELECT COUNT(*) FROM order_payments WHERE order_id = orders.id)
+			FROM orders WHERE id = ?`, id).Scan(&from, &consume, &total, &paid, &parts)
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrNotFound
 		}
@@ -240,11 +254,11 @@ func (d *DB) SetStatus(ctx context.Context, id int64, to string) error {
 			}
 		}
 		if to == StatusClosed {
-			if payment == "" {
+			if parts == 0 {
 				return ErrUnpaid
 			}
-			if cash > 0 && cash < total {
-				return ErrCashShort
+			if paid != total {
+				return ErrPaidMismatch
 			}
 			return execOne(ctx, tx, `UPDATE orders SET status = ?, closed_at = ? WHERE id = ?`, to, now(), id)
 		}
@@ -274,30 +288,6 @@ func (d *DB) SetConsume(ctx context.Context, id int64, consume, address string) 
 		return execOne(ctx, tx, `UPDATE orders SET consume = ?, address = COALESCE(NULLIF(?, ''), address) WHERE id = ?`,
 			consume, address, id)
 	})
-}
-
-// SetPayment records the payment method, at any status except fechado and cancelado.
-// cashGivenCents is stored only for dinheiro, and only when above 0.
-func (d *DB) SetPayment(ctx context.Context, id int64, method string, cashGivenCents int64) error {
-	if !slices.Contains(PaymentMethods, method) {
-		return ErrInvalid
-	}
-	var cash any
-	if method == "dinheiro" && cashGivenCents > 0 {
-		cash = cashGivenCents
-	}
-	res, err := d.ExecContext(ctx, `UPDATE orders SET payment = ?, cash_given_cents = ?, paid_at = ?
-		WHERE id = ? AND status NOT IN ('fechado', 'cancelado')`, method, cash, now(), id)
-	if err != nil {
-		return err
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		if _, err := d.GetOrder(ctx, id); err != nil {
-			return err
-		}
-		return ErrBadTransition
-	}
-	return nil
 }
 
 func requireOpen(ctx context.Context, tx *sql.Tx, orderID int64) error {

@@ -17,15 +17,26 @@ func closedOrder(t *testing.T, d *DB, p, qty int64, channel, method string) int6
 	if err := d.AddItem(ctx, id, p, qty, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := d.SetPayment(ctx, id, method, 0); err != nil {
-		t.Fatal(err)
-	}
+	payAll(t, d, id, method)
 	for _, s := range []string{StatusKitchen, StatusReady, StatusClosed} {
 		if err := d.SetStatus(ctx, id, s); err != nil {
 			t.Fatal(err)
 		}
 	}
 	return id
+}
+
+// payAll pays what is left of an order in one part.
+func payAll(t *testing.T, d *DB, id int64, method string) {
+	t.Helper()
+	ctx := context.Background()
+	o, err := d.GetOrder(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.AddPayment(ctx, id, method, o.RemainingCents(), 0); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestDailyReport(t *testing.T) {
@@ -49,9 +60,7 @@ func TestDailyReport(t *testing.T) {
 	if err := d.AddItem(ctx, cancelled, p, 9, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := d.SetPayment(ctx, cancelled, "pix", 0); err != nil {
-		t.Fatal(err)
-	}
+	payAll(t, d, cancelled, "pix")
 	if err := d.SetStatus(ctx, cancelled, StatusCancelled); err != nil {
 		t.Fatal(err)
 	}
@@ -59,24 +68,39 @@ func TestDailyReport(t *testing.T) {
 	if err := d.AddItem(ctx, unpaid, p, 4, ""); err != nil {
 		t.Fatal(err)
 	}
+	// A split bill: R$ 24,00 as R$ 10,00 by PIX and R$ 14,00 in cash.
+	split, err := d.CreateOrder(ctx, NewOrder{Channel: "balcao", Consume: ConsumeLocal, ClientName: "Bia"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.AddItem(ctx, split, p, 4, "")
+	if err := d.AddPayment(ctx, split, "pix", 1000, 0); err != nil {
+		t.Fatal(err)
+	}
+	payAll(t, d, split, "dinheiro")
+	for _, s := range []string{StatusKitchen, StatusReady, StatusClosed} {
+		if err := d.SetStatus(ctx, split, s); err != nil {
+			t.Fatal(err)
+		}
+	}
 
 	from := time.Now().Add(-time.Hour)
 	rep, err := d.DailyReport(ctx, from, from.Add(2*time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rep.Orders != 3 || rep.TotalCents != 3600 {
-		t.Fatalf("totals = %d orders, %d cents; want 3, 3600", rep.Orders, rep.TotalCents)
+	if rep.Orders != 4 || rep.TotalCents != 6000 {
+		t.Fatalf("totals = %d orders, %d cents; want 4, 6000", rep.Orders, rep.TotalCents)
 	}
-	wantPay := []ReportRow{{"dinheiro", 1, 1800}, {"pix", 2, 1800}}
+	wantPay := []ReportRow{{"dinheiro", 2, 3200}, {"pix", 3, 2800}}
 	if len(rep.ByPayment) != 2 || rep.ByPayment[0] != wantPay[0] || rep.ByPayment[1] != wantPay[1] {
 		t.Errorf("ByPayment = %+v, want %+v", rep.ByPayment, wantPay)
 	}
-	wantCh := []ReportRow{{"balcao", 2, 2400}, {"whatsapp", 1, 1200}}
+	wantCh := []ReportRow{{"balcao", 3, 4800}, {"whatsapp", 1, 1200}}
 	if len(rep.ByChannel) != 2 || rep.ByChannel[0] != wantCh[0] || rep.ByChannel[1] != wantCh[1] {
 		t.Errorf("ByChannel = %+v, want %+v", rep.ByChannel, wantCh)
 	}
-	if len(rep.TopItems) != 1 || rep.TopItems[0] != (TopItem{"Coca-Cola Zero Lata", 6, 3600}) {
+	if len(rep.TopItems) != 1 || rep.TopItems[0] != (TopItem{"Coca-Cola Zero Lata", 10, 6000}) {
 		t.Errorf("TopItems = %+v", rep.TopItems)
 	}
 

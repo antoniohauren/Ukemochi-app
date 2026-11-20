@@ -36,7 +36,15 @@ func TestTicketLinesFit(t *testing.T) {
 			t.Errorf("ticket lacks %q:\n%s", want, text)
 		}
 	}
-	o.Payment = "pix"
+	// A split bill lists each part and what is left.
+	o.Payments = []db.Payment{{Method: "pix", AmountCents: 100000}, {Method: "dinheiro", AmountCents: 3456}}
+	split := ticketText(o, false)
+	for _, want := range []string{"PAGO PIX             R$ 1.000,00", "PAGO Dinheiro           R$ 34,56", "A PAGAR                R$ 200,00"} {
+		if !strings.Contains(split, want) {
+			t.Errorf("split ticket lacks %q:\n%s", want, split)
+		}
+	}
+	o.Payments = []db.Payment{{Method: "pix", AmountCents: o.TotalCents}}
 	if !strings.Contains(ticketText(o, false), "PAGO                         PIX") {
 		t.Errorf("paid ticket:\n%s", ticketText(o, false))
 	}

@@ -353,6 +353,8 @@ func (s *Server) setConsume(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, err)
 		return
 	}
+	// Fired on the form before the swap, so the sheet can close and the actions sheet reopen.
+	w.Header().Set("HX-Trigger", "consumo-salvo")
 	render(w, r, http.StatusOK, ConsumeUpdate(o))
 }
 
@@ -438,6 +440,8 @@ func fail(w http.ResponseWriter, r *http.Request, err error) {
 			c = templ.Join(c, sheetError("pagamento-erro", msg))
 		case "acoes":
 			c = templ.Join(c, sheetError("acoes-erro", msg))
+		case "consumo":
+			c = templ.Join(c, sheetError("consumo-erro", msg))
 		}
 		render(w, r, http.StatusOK, c)
 		return
@@ -454,8 +458,12 @@ func errorStatus(err error) (int, string) {
 		return http.StatusNotFound, "Não encontrado."
 	case errors.Is(err, db.ErrUnpaid):
 		return http.StatusConflict, "Registre o pagamento antes de fechar o pedido."
+	case errors.Is(err, db.ErrPaidMismatch):
+		return http.StatusConflict, "Os pagamentos não batem com o total. Atualize o pagamento."
+	case errors.Is(err, db.ErrOverpaid):
+		return http.StatusUnprocessableEntity, "Valor maior que o que falta pagar."
 	case errors.Is(err, db.ErrCashShort):
-		return http.StatusConflict, "O dinheiro recebido não cobre o total. Atualize o pagamento."
+		return http.StatusUnprocessableEntity, "Valor recebido menor que o valor a pagar."
 	case errors.Is(err, db.ErrNotEditable):
 		return http.StatusConflict, "Itens só podem ser alterados com o pedido aberto."
 	case errors.Is(err, db.ErrBadTransition):
@@ -481,6 +489,11 @@ var channelLabels = map[string]string{"whatsapp": "WhatsApp", "balcao": "Balcão
 const maxAddress = 120
 
 var consumeLabels = map[string]string{db.ConsumeDelivery: "Entrega", db.ConsumeLocal: "No local"}
+
+// canChangeConsume reports whether o may still switch between entrega and local (db.SetConsume).
+func canChangeConsume(o db.Order) bool {
+	return o.Status == db.StatusOpen || o.Status == db.StatusKitchen || o.Status == db.StatusReady
+}
 
 // statusActions lists the status buttons in display order; only allowed moves are shown.
 var statusActions = []struct{ To, Label, Variant string }{

@@ -1,6 +1,8 @@
 package web
 
 import (
+	"strconv"
+
 	"github.com/antoniohauren/ukemochi/internal/db"
 	"github.com/antoniohauren/ukemochi/internal/money"
 )
@@ -9,25 +11,12 @@ import (
 templ paymentSummary(o db.Order) {
 	<section class="space-y-3 rounded-xl border border-line p-3" aria-labelledby="pagamento-titulo">
 		<h3 id="pagamento-titulo" class="font-semibold">Pagamento</h3>
-		if o.Payment == "" {
-			<p class="text-ink-muted">Não pago.</p>
-		} else {
-			<p class="font-medium text-ok">
-				Pago com { paymentLabels[o.Payment] } às { localTime(o.PaidAt, "15:04") }
-			</p>
-			if o.CashGivenCents > 0 {
-				if c, ok := money.Change(o.TotalCents, o.CashGivenCents); ok {
-					<p class="text-sm tabular-nums text-ink-muted">Recebido { money.Format(o.CashGivenCents) } · Troco { money.Format(c) }</p>
-				} else {
-					// Items changed after the cash was recorded (reopened order).
-					<p role="alert" class="text-sm font-medium tabular-nums text-danger">Recebido { money.Format(o.CashGivenCents) } · Faltam { money.Format(o.TotalCents - o.CashGivenCents) }. Atualize o pagamento.</p>
-				}
-			}
-		}
+		@paymentList(o, false)
+		@paymentStatus(o)
 		if canPay(o) {
 			<div class="grid">
 				@Button("secondary", templ.Attributes{"type": "button", "onclick": templ.JSUnsafeFuncCall("this.closest('dialog')?.close(); document.getElementById('pagamento-sheet').showModal()")}) {
-					if o.Payment == "" {
+					if o.PaymentCount == 0 {
 						Registrar pagamento
 					} else {
 						Alterar pagamento
@@ -38,9 +27,58 @@ templ paymentSummary(o db.Order) {
 	</section>
 }
 
-// PaymentPanel is the body of the payment sheet: the total and the form to record the payment.
+// paymentStatus says whether the parts cover the total: unpaid, paid, short or over.
+templ paymentStatus(o db.Order) {
+	switch {
+		case o.PaymentCount == 0:
+			<p class="text-ink-muted">Não pago.</p>
+		case o.Paid():
+			<p class="font-medium text-ok">
+				if o.PaymentCount == 1 {
+					Pago com { paymentLabels[o.Payments[0].Method] }
+				} else {
+					Pago em { strconv.FormatInt(o.PaymentCount, 10) } partes
+				}
+			</p>
+		case o.RemainingCents() > 0:
+			<p role="alert" class="flex justify-between text-lg font-semibold tabular-nums text-danger"><span>Falta</span><span>{ money.Format(o.RemainingCents()) }</span></p>
+		default:
+			// Items removed after paying (reopened order).
+			<p role="alert" class="font-medium tabular-nums text-danger">Pago { money.Format(-o.RemainingCents()) } a mais. Remova um pagamento.</p>
+	}
+}
+
+// paymentList lists the payment parts; removable adds a remove button to each.
+templ paymentList(o db.Order, removable bool) {
+	if len(o.Payments) > 0 {
+		<ul class="divide-y divide-line">
+			for _, p := range o.Payments {
+				<li class="flex items-center gap-3 py-2">
+					<div class="min-w-0 flex-1">
+						<p class="flex justify-between font-medium tabular-nums">
+							<span>{ paymentLabels[p.Method] } <span class="text-sm font-normal text-ink-muted">{ localTime(p.PaidAt, "15:04") }</span></span>
+							<span>{ money.Format(p.AmountCents) }</span>
+						</p>
+						if p.CashGivenCents > 0 {
+							<p class="text-sm tabular-nums text-ink-muted">Recebido { money.Format(p.CashGivenCents) } · Troco { money.Format(p.CashGivenCents - p.AmountCents) }</p>
+						}
+					</div>
+					if removable {
+						{{ u := paymentURL(o.ID, p.ID) }}
+						<form method="post" action={ u } hx-delete={ u } hx-target="#pagamento" hx-swap="outerHTML">
+							<button type="submit" class={ buttonClass("ghost") + " w-12 px-0" } aria-label={ "Remover pagamento " + paymentLabels[p.Method] + " " + money.Format(p.AmountCents) }>✕</button>
+						</form>
+					}
+				</li>
+			}
+		</ul>
+	}
+}
+
+// PaymentPanel is the body of the payment sheet: the total, the parts paid so far and the form for the next part.
+// people is how many split the bill (1 pays all that is left); it is kept between parts.
 // oob marks it for an htmx out-of-band swap when the order's items change.
-templ PaymentPanel(o db.Order, oob bool) {
+templ PaymentPanel(o db.Order, people int64, oob bool) {
 	<div
 		id="pagamento"
 		if oob {
@@ -50,52 +88,101 @@ templ PaymentPanel(o db.Order, oob bool) {
 	>
 		<p id="pagamento-erro" role="alert" class="empty:hidden font-medium text-danger"></p>
 		<p class="flex justify-between text-xl font-bold"><span>Total</span><span class="tabular-nums">{ money.Format(o.TotalCents) }</span></p>
-		if canPay(o) {
+		@paymentList(o, canPay(o))
+		if o.PaymentCount > 0 {
+			@paymentStatus(o)
+		}
+		if canAddPayment(o) {
+			{{ rest := o.RemainingCents() }}
 			<form
 				method="post"
 				action={ orderURL(o.ID) + "/pagamento" }
 				hx-post={ orderURL(o.ID) + "/pagamento" }
 				hx-target="#pagamento"
+				hx-swap="outerHTML"
 				hx-on::after-request="document.getElementById('pagamento-erro')?.scrollIntoView({block: 'nearest'})"
 				novalidate
-				class="group space-y-3"
+				class="group space-y-3 border-t border-line pt-3"
 			>
 				<fieldset>
-					<legend class="sr-only">Forma de pagamento</legend>
+					<legend class="mb-1 text-sm font-medium text-ink-muted">Forma de pagamento</legend>
 					<div class="grid grid-cols-2 gap-2">
 						for _, m := range db.PaymentMethods {
 							<label class={ optionClass() }>
-								<input type="radio" name="metodo" value={ m } id={ "pagamento-" + m } class="sr-only" required checked?={ o.Payment == m }/>
+								<input type="radio" name="metodo" value={ m } id={ "pagamento-" + m } class="sr-only" required/>
 								{ paymentLabels[m] }
 							</label>
 						}
 					</div>
 				</fieldset>
+				{{ share := db.EqualShare(o.TotalCents, people) }}
+				if rest > 0 {
+					// Picking how many people split the bill fills the amount with one share (splitScript).
+					<div data-total={ strconv.FormatInt(o.TotalCents, 10) } data-rest={ strconv.FormatInt(rest, 10) }>
+						<span class="mb-1 block text-sm font-medium text-ink-muted">Dividir entre</span>
+						<div class="flex items-center gap-2">
+							<button type="button" data-split-step="-" class={ buttonClass("secondary") + " w-12 shrink-0 px-0 text-2xl" } aria-label="Menos pessoas">−</button>
+							<input type="number" name="pessoas" value={ strconv.FormatInt(people, 10) } min="1" max={ strconv.FormatInt(maxPeople, 10) } inputmode="numeric" aria-label="Pessoas" class="h-12 w-14 shrink-0 rounded-xl border border-line bg-card text-center text-xl font-semibold tabular-nums"/>
+							<button type="button" data-split-step="+" class={ buttonClass("secondary") + " w-12 shrink-0 px-0 text-2xl" } aria-label="Mais pessoas">+</button>
+							<p class="min-w-0 flex-1 text-right leading-tight">
+								<span data-share class="block font-semibold tabular-nums">{ money.Format(share) }</span>
+								<span class="text-sm text-ink-muted">por pessoa</span>
+							</p>
+						</div>
+					</div>
+				}
+				@MoneyInput("valor", "Valor a pagar", plainMoney(min(share, rest)), nil)
 				// Shown only while Dinheiro is checked.
 				<div class="hidden space-y-2 group-has-[#pagamento-dinheiro:checked]:block">
-					<div>
-						@MoneyInput("valor", "Valor recebido (opcional)", cashValue(o), templ.Attributes{
-							"hx-get":     orderURL(o.ID) + "/troco",
-							"hx-trigger": "input changed delay:300ms",
-							"hx-target":  "#troco",
-							"hx-swap":    "outerHTML",
-							"hx-sync":    "this:replace",
-						})
-					</div>
-					@ChangeLine(changeText(o.TotalCents, cashValue(o)))
+					@MoneyInput("recebido", "Valor recebido (opcional)", "", nil)
+					@ChangeLine("", "", true)
 				</div>
+				// Refreshes the change line whenever the amount or the cash changes.
+				<div
+					hidden
+					hx-get={ orderURL(o.ID) + "/troco" }
+					hx-trigger="input delay:300ms from:closest form"
+					hx-include="closest form"
+					hx-target="#troco"
+					hx-swap="outerHTML"
+					hx-sync="this:replace"
+				></div>
 				<div class="grid">
 					@Button("primary", templ.Attributes{"type": "submit"}) {
-						if o.Payment == "" {
-							Registrar pagamento
-						} else {
-							Alterar pagamento
-						}
+						Registrar pagamento
 					}
 				</div>
 			</form>
 		}
+		@sheetBack("pagamento-sheet", o.Paid())
 	</div>
+}
+
+// splitScript drives the people picker: − and + step it, and any change fills the amount with one share.
+// The share is db.EqualShare (total / people, rounded up), capped at what is left. Integer centavos only.
+templ splitScript() {
+	<script>
+		document.addEventListener("click", (e) => {
+			const b = e.target.closest("[data-split-step]");
+			if (!b) return;
+			const n = b.form.pessoas;
+			b.dataset.splitStep === "+" ? n.stepUp() : n.stepDown();
+			n.dispatchEvent(new Event("input", { bubbles: true }));
+		});
+		document.addEventListener("input", (e) => {
+			if (e.target.name !== "pessoas") return;
+			const box = e.target.closest("[data-total]");
+			const total = Number(box.dataset.total), rest = Number(box.dataset.rest);
+			const n = Math.max(1, Math.min(Number(e.target.max), parseInt(e.target.value, 10) || 1));
+			const up = total + n - 1;
+			const share = (up - (up % n)) / n;
+			const fmt = (c) => String((c - (c % 100)) / 100).replace(/\B(?=(\d{3})+(?!\d))/g, ".") + "," + String(c % 100).padStart(2, "0");
+			box.querySelector("[data-share]").textContent = "R$ " + fmt(share);
+			const v = e.target.form.valor;
+			v.value = fmt(Math.min(share, rest));
+			v.dispatchEvent(new Event("input", { bubbles: true }));
+		});
+	</script>
 }
 
 // ChangeLine is the live change line under the cash field, swapped by GET /pedidos/{id}/troco.
@@ -106,10 +193,11 @@ templ ChangeLine(label, amount string, ok bool) {
 	</p>
 }
 
-func cashValue(o db.Order) string {
-	if o.CashGivenCents == 0 {
-		return ""
-	}
-	// Format gives "R$ 50,00"; the field already shows the R$ prefix.
-	return money.Format(o.CashGivenCents)[len("R$ "):]
+// plainMoney formats cents for a MoneyInput, which already shows the R$ prefix: "50,00".
+func plainMoney(cents int64) string {
+	return money.Format(cents)[len("R$ "):]
+}
+
+func paymentURL(orderID, paymentID int64) string {
+	return orderURL(orderID) + "/pagamentos/" + strconv.FormatInt(paymentID, 10)
 }
