@@ -251,10 +251,20 @@ func TestAddItemSteps(t *testing.T) {
 		!strings.Contains(body, `showModal()`) || !strings.Contains(body, "?categoria=1") {
 		t.Fatalf("editor: %s", body)
 	}
-	// Step 1 lists categories; step 2 the category's products; step 3 the quantity form.
+	// Step 1 lists categories; step 2 the items; step 3 the item's variants; step 4 the quantity form.
+	// An item with one product links straight to quantity.
+	ctx := context.Background()
+	solo, _ := s.DB.CreateItem(ctx, db.Item{CategoryID: 1, Name: "Guioza", Active: true})
+	soloProd, _ := s.DB.CreateProduct(ctx, db.Product{ItemID: solo, PrintableName: "GUIOZA", PriceCents: 2000, Active: true})
+	if _, err := s.DB.CreateProduct(ctx, db.Product{ItemID: 1, Size: "Todo (8un)", PrintableName: "HOT TODO", PriceCents: 2800, Active: true}); err != nil {
+		t.Fatal(err)
+	}
 	for _, tc := range []struct{ target, want string }{
 		{"/pedidos/1/adicionar", "Sushi"},
-		{"/pedidos/1/adicionar?categoria=1", "?produto=" + itoa(prod)},
+		{"/pedidos/1/adicionar?categoria=1", "?item=1"},
+		{"/pedidos/1/adicionar?categoria=1", "?produto=" + itoa(soloProd)},
+		{"/pedidos/1/adicionar?item=1", "Todo (8un)"},
+		{"/pedidos/1/adicionar?item=1", "?produto=" + itoa(prod)},
 		{"/pedidos/1/adicionar?produto=" + itoa(prod), `name="qty"`},
 	} {
 		for _, hx := range []bool{true, false} {
@@ -265,7 +275,7 @@ func TestAddItemSteps(t *testing.T) {
 			}
 		}
 	}
-	for _, target := range []string{"/pedidos/1/adicionar?categoria=99", "/pedidos/1/adicionar?produto=99", "/pedidos/1/adicionar?produto=x", "/pedidos/99/adicionar"} {
+	for _, target := range []string{"/pedidos/1/adicionar?categoria=99", "/pedidos/1/adicionar?item=99", "/pedidos/1/adicionar?produto=99", "/pedidos/1/adicionar?produto=x", "/pedidos/99/adicionar"} {
 		if rec := do(h, "GET", target, nil, false); rec.Code != http.StatusNotFound {
 			t.Errorf("%s: code %d", target, rec.Code)
 		}
@@ -281,7 +291,7 @@ func TestAddItemSteps(t *testing.T) {
 	if rec.Code != http.StatusOK || rec.Header().Get("HX-Trigger") != "item-added" {
 		t.Fatalf("add qty: %d %v", rec.Code, rec.Header())
 	}
-	o, _ := s.DB.GetOrder(context.Background(), 1)
+	o, _ := s.DB.GetOrder(ctx, 1)
 	if len(o.Items) != 1 || o.Items[0].Qty != 3 || o.TotalCents != 4500 {
 		t.Fatalf("after add: %+v", o)
 	}

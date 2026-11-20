@@ -3,6 +3,7 @@ package web
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/antoniohauren/ukemochi/internal/db"
 	"github.com/antoniohauren/ukemochi/internal/money"
@@ -387,18 +388,23 @@ templ AddCategoryStep(orderID int64, menu []db.Category) {
 	}
 }
 
-// AddVariantStep is step 2: pick a product of the category.
-templ AddVariantStep(orderID int64, c db.Category) {
+// AddItemStep is step 2: pick an item of the category. An item with one product skips to quantity.
+templ AddItemStep(orderID int64, c db.Category) {
 	<div class="space-y-3">
 		@stepLink(addItemURL(orderID, "", 0), buttonClass("ghost")) {
 			← { c.Name }
 		}
 		<div class="grid grid-cols-2 gap-2">
 			for _, it := range c.Items {
-				for _, p := range it.Products {
-					@stepLink(addItemURL(orderID, "produto", p.ID), stepTile) {
-						<span class="font-semibold leading-tight">{ db.DisplayName(it.Name, p.Variant, p.Size) }</span>
-						<span class="text-sm tabular-nums text-ink-muted">{ money.Format(p.PriceCents) }</span>
+				if len(it.Products) == 1 {
+					@stepLink(addItemURL(orderID, "produto", it.Products[0].ID), stepTile) {
+						<span class="font-semibold leading-tight">{ db.DisplayName(it.Name, it.Products[0].Variant, it.Products[0].Size) }</span>
+						<span class="text-sm tabular-nums text-ink-muted">{ money.Format(it.Products[0].PriceCents) }</span>
+					}
+				} else {
+					@stepLink(addItemURL(orderID, "item", it.ID), stepTile) {
+						<span class="font-semibold leading-tight">{ it.Name }</span>
+						<span class="text-sm tabular-nums text-ink-muted">a partir de { money.Format(it.Products[0].PriceCents) }</span>
 					}
 				}
 			}
@@ -406,11 +412,34 @@ templ AddVariantStep(orderID int64, c db.Category) {
 	</div>
 }
 
-// AddQtyStep is step 3: pick the quantity and add.
+// AddVariantStep is step 3: pick a product (variant/size) of the item.
+templ AddVariantStep(orderID int64, c db.Category, it db.Item) {
+	<div class="space-y-3">
+		@stepLink(addItemURL(orderID, "categoria", c.ID), buttonClass("ghost")) {
+			← { it.Name }
+		}
+		<div class="grid grid-cols-2 gap-2">
+			for _, p := range it.Products {
+				@stepLink(addItemURL(orderID, "produto", p.ID), stepTile) {
+					<span class="font-semibold leading-tight">{ variantLabel(it, p) }</span>
+					<span class="text-sm tabular-nums text-ink-muted">{ money.Format(p.PriceCents) }</span>
+				}
+			}
+		</div>
+	</div>
+}
+
+// AddQtyStep is step 4: pick the quantity and add.
 templ AddQtyStep(orderID int64, c db.Category, it db.Item, p db.Product) {
 	<div class="space-y-4">
-		@stepLink(addItemURL(orderID, "categoria", c.ID), buttonClass("ghost")) {
-			← { c.Name }
+		if len(it.Products) > 1 {
+			@stepLink(addItemURL(orderID, "item", it.ID), buttonClass("ghost")) {
+				← { it.Name }
+			}
+		} else {
+			@stepLink(addItemURL(orderID, "categoria", c.ID), buttonClass("ghost")) {
+				← { c.Name }
+			}
 		}
 		<div>
 			<p class="text-lg font-semibold">{ db.DisplayName(it.Name, p.Variant, p.Size) }</p>
@@ -430,4 +459,12 @@ templ AddQtyStep(orderID int64, c db.Category, it db.Item, p db.Product) {
 			</div>
 		</form>
 	</div>
+}
+
+// variantLabel names a product within its item, e.g. "Meio (4un)"; the item name if it has neither.
+func variantLabel(it db.Item, p db.Product) string {
+	if l := strings.TrimSpace(p.Variant + " " + p.Size); l != "" {
+		return l
+	}
+	return it.Name
 }

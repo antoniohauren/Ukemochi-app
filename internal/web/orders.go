@@ -168,7 +168,7 @@ func (s *Server) addItem(w http.ResponseWriter, r *http.Request) {
 }
 
 // addItemStep shows one step of adding an item: categories, then the category's
-// products (?categoria=), then the quantity for one product (?produto=).
+// items (?categoria=), the item's products (?item=), then the quantity for one product (?produto=).
 func (s *Server) addItemStep(w http.ResponseWriter, r *http.Request) {
 	o, ok := s.loadOrder(w, r)
 	if !ok {
@@ -208,10 +208,20 @@ func pickStep(r *http.Request, orderID int64, menu []db.Category) (templ.Compone
 		}
 		return nil, db.ErrNotFound
 	}
+	if v := q.Get("item"); v != "" {
+		for _, c := range menu {
+			for _, it := range c.Items {
+				if strconv.FormatInt(it.ID, 10) == v {
+					return AddVariantStep(orderID, c, it), nil
+				}
+			}
+		}
+		return nil, db.ErrNotFound
+	}
 	if v := q.Get("categoria"); v != "" {
 		for _, c := range menu {
 			if strconv.FormatInt(c.ID, 10) == v {
-				return AddVariantStep(orderID, c), nil
+				return AddItemStep(orderID, c), nil
 			}
 		}
 		return nil, db.ErrNotFound
