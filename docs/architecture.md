@@ -71,9 +71,12 @@ Status transitions are checked on the server. See the rules in [flows](flows.md)
 `/pedidos/{id}/imprimir` is a standalone page that calls `window.print()` on load. The phone sends it to the printer through the Android print service (for example RawBT or the printer vendor's app).
 
 ```css
-@page { size: 58mm auto; margin: 0; }
-body  { width: 48mm; margin: 0 auto; font: 12px/1.2 monospace; }
+@page { margin: 0; }                      /* static/print.css */
+@page { size: 58mm 49.6mm; }              /* inline, height from the line count */
+body  { width: 48mm; margin: 0 auto; padding: 4mm 0; font: 2.4mm/1.2 monospace; }
 ```
+
+`size: 58mm auto` is invalid CSS, so browsers drop it and print on A4. The page instead sets the height to 2.9mm per line plus 10mm (`ticketHeight` in `print.go`), so a saved PDF is one 58mm strip.
 
 58mm paper has about 48mm printable width, or 32 characters in monospace. The ticket shows the order number, time, client name, channel and consume type, items as `qty x printable_name`, notes, total and payment status.
 

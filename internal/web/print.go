@@ -54,6 +54,15 @@ func ticketText(o db.Order) string {
 	return strings.Join(lines, "\n")
 }
 
+// ticketHeight is the paper length for text: 2.88mm per line (2.4mm font, 1.2 line height),
+// plus 8mm body padding and 2mm slack so rounding never spills onto a second page.
+// Worked in tenths of a millimetre to stay in integers.
+func ticketHeight(text string) string {
+	lines := strings.Count(text, "\n") + 1
+	tenths := lines*29 + 100
+	return fmt.Sprintf("%d.%dmm", tenths/10, tenths%10)
+}
+
 func center(s string) string {
 	n := len([]rune(s))
 	if n >= ticketWidth {

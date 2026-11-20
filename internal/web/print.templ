@@ -16,6 +16,7 @@ templ TicketPage(o db.Order, text string) {
 			<meta name="viewport" content="width=device-width, initial-scale=1"/>
 			<title>{ fmt.Sprintf("Ticket #%d", o.ID) }</title>
 			<link rel="stylesheet" href="/static/print.css"/>
+			@templ.Raw("<style>@page { size: 58mm " + ticketHeight(text) + "; }</style>")
 		</head>
 		<body>
 			<pre>{ text }</pre>

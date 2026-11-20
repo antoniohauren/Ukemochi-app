@@ -2,6 +2,7 @@ package web
 
 import (
 	"net/url"
+	"regexp"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -63,5 +64,19 @@ func TestPrintPage(t *testing.T) {
 	}
 	if strings.Contains(body, "app.css") {
 		t.Error("print page loads Tailwind")
+	}
+	// The page is 58mm wide and as long as the ticket, never A4.
+	if !regexp.MustCompile(`@page \{ size: 58mm \d+\.\dmm; \}`).MatchString(body) {
+		t.Error("print page lacks a 58mm page size")
+	}
+}
+
+func TestTicketHeight(t *testing.T) {
+	// 1 line: 2.9mm + 10mm; 10 lines: 29mm + 10mm.
+	if got := ticketHeight("a"); got != "12.9mm" {
+		t.Errorf("1 line: %s", got)
+	}
+	if got := ticketHeight(strings.Repeat("a\n", 9) + "a"); got != "39.0mm" {
+		t.Errorf("10 lines: %s", got)
 	}
 }
