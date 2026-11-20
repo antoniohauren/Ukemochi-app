@@ -33,6 +33,13 @@ templ LinkButton(variant, href string) {
 	</a>
 }
 
+// HomeLink is the header's house icon back to the order list.
+templ HomeLink() {
+	<a href="/" class={ buttonClass("ghost") + " px-3" } aria-label="Início">
+		<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-6" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"></path><path d="M5 9v11h14V9"></path><path d="M10 20v-6h4v6"></path></svg>
+	</a>
+}
+
 templ Card() {
 	<div class="rounded-2xl border border-line bg-card p-4 shadow-sm">
 		{ children... }

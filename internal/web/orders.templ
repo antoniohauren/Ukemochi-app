@@ -76,7 +76,7 @@ templ NewOrderPage(o db.NewOrder, errMsg string) {
 	@Layout("Novo pedido · Ukemochi") {
 		<main class="mx-auto max-w-lg p-4">
 			<header class="mb-4 flex items-center gap-2">
-				<a href="/" class={ buttonClass("ghost") } aria-label="Voltar">←</a>
+				@HomeLink()
 				<h1 class="text-xl font-bold">Novo pedido</h1>
 			</header>
 			<form method="post" action="/pedidos" class="group space-y-5">
@@ -193,9 +193,7 @@ templ orderHeader(o db.Order, oob bool) {
 		class="sticky top-0 z-10 border-b border-line bg-surface/95 p-4 backdrop-blur"
 	>
 		<div class="flex items-center gap-2">
-			<a href="/" class={ buttonClass("ghost") + " px-3" } aria-label="Início">
-				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-6" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"></path><path d="M5 9v11h14V9"></path><path d="M10 20v-6h4v6"></path></svg>
-			</a>
+			@HomeLink()
 			<div class="min-w-0 flex-1">
 				<h1 class="truncate text-lg font-bold">#{ strconv.FormatInt(o.ID, 10) } { o.ClientLabel() }</h1>
 				<p class="text-sm text-ink-muted">
