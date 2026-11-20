@@ -46,15 +46,19 @@ templ PaymentPanel(o db.Order) {
 					</div>
 				</fieldset>
 				// Shown only while Dinheiro is checked.
-				<div class="hidden space-y-1 group-has-[#pagamento-dinheiro:checked]:block">
-					@MoneyInput("valor", "Valor recebido (opcional)", cashValue(o), templ.Attributes{
-						"hx-get":     orderURL(o.ID) + "/troco",
-						"hx-trigger": "input changed delay:300ms",
-						"hx-target":  "#troco",
-						"hx-swap":    "outerHTML",
-					"hx-sync":    "this:replace",
-					})
-					@ChangeLine(changeText(o.TotalCents, cashValue(o)))
+				<div class="hidden items-end gap-3 group-has-[#pagamento-dinheiro:checked]:flex">
+					<div class="min-w-0 flex-1">
+						@MoneyInput("valor", "Valor recebido (opcional)", cashValue(o), templ.Attributes{
+							"hx-get":     orderURL(o.ID) + "/troco",
+							"hx-trigger": "input changed delay:300ms",
+							"hx-target":  "#troco",
+							"hx-swap":    "outerHTML",
+							"hx-sync":    "this:replace",
+						})
+					</div>
+					<div class="flex min-h-12 shrink-0 items-center">
+						@ChangeLine(changeText(o.TotalCents, cashValue(o)))
+					</div>
 				</div>
 				<div class="grid">
 					@Button("secondary", templ.Attributes{"type": "submit"}) {
@@ -70,7 +74,7 @@ templ PaymentPanel(o db.Order) {
 	</section>
 }
 
-// ChangeLine is the live change text under the cash field, swapped by GET /pedidos/{id}/troco.
+// ChangeLine is the live change text beside the cash field, swapped by GET /pedidos/{id}/troco.
 templ ChangeLine(text string, ok bool) {
 	<p id="troco" aria-live="polite" class={ "min-h-6 text-lg font-semibold tabular-nums", templ.KV("text-danger", !ok) }>{ text }</p>
 }
