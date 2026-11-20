@@ -59,6 +59,9 @@ func main() {
 }
 
 func run() error {
+	if err := loadDotenv(); err != nil {
+		return err
+	}
 	addr := env("ADDR", "127.0.0.1:8080")
 	dbPath := env("DB_PATH", "ukemochi.db")
 	_, statErr := os.Stat(dbPath)

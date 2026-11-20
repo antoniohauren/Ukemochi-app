@@ -28,7 +28,7 @@ make run
 # open http://127.0.0.1:8080
 ```
 
-`make run` and `make seed` read `.env` from the project root. It is not committed. Values in `.env` override the same variables set in the shell.
+The app reads `.env` from the folder its binary is in, then from the working directory, so a built binary only needs a `.env` beside it. Variables already set in the environment win. `make run` and `make seed` also load `.env` from the project root, and there its values override the shell. It is not committed.
 
 `make run` runs `make gen` first: templ generate plus Tailwind build. The first run downloads the Tailwind binary into `bin/` and htmx into `static/`, both checked by SHA256.
 
