@@ -1,0 +1,199 @@
+package web
+
+import "github.com/antoniohauren/ukemochi/internal/money"
+
+// Button variants: "primary", "secondary", "danger", "ghost".
+func buttonClass(variant string) string {
+	base := "inline-flex min-h-12 items-center justify-center gap-2 rounded-xl px-5 text-base font-semibold " +
+		"transition active:scale-[0.98] disabled:pointer-events-none disabled:opacity-40 " +
+		"focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+	switch variant {
+	case "primary":
+		return base + " bg-brand text-white hover:bg-brand-strong"
+	case "danger":
+		return base + " border-2 border-danger text-danger bg-card hover:bg-brand-soft"
+	case "ghost":
+		return base + " text-ink hover:bg-line"
+	default:
+		return base + " border border-line bg-card text-ink hover:bg-surface"
+	}
+}
+
+// Button is a large tap target. Pass type, hx-* or disabled through attrs.
+templ Button(variant string, attrs templ.Attributes) {
+	<button class={ buttonClass(variant) } { attrs... }>
+		{ children... }
+	</button>
+}
+
+// LinkButton looks like a Button but navigates.
+templ LinkButton(variant, href string) {
+	<a href={ templ.SafeURL(href) } class={ buttonClass(variant) }>
+		{ children... }
+	</a>
+}
+
+templ Card() {
+	<div class="rounded-2xl border border-line bg-card p-4 shadow-sm">
+		{ children... }
+	</div>
+}
+
+var statusLabels = map[string]string{
+	"aberto":    "Aberto",
+	"cozinha":   "Na cozinha",
+	"pronto":    "Pronto",
+	"saiu":      "Saiu p/ entrega",
+	"fechado":   "Fechado",
+	"cancelado": "Cancelado",
+}
+
+var statusColors = map[string]string{
+	"aberto":    "bg-stone-100 text-stone-700 ring-stone-300",
+	"cozinha":   "bg-amber-100 text-amber-800 ring-amber-300",
+	"pronto":    "bg-green-100 text-green-800 ring-green-300",
+	"saiu":      "bg-sky-100 text-sky-800 ring-sky-300",
+	"fechado":   "bg-stone-200 text-stone-600 ring-stone-300",
+	"cancelado": "bg-red-100 text-red-800 ring-red-300",
+}
+
+// StatusLabel returns the Portuguese label for an order status.
+func StatusLabel(status string) string {
+	if l, ok := statusLabels[status]; ok {
+		return l
+	}
+	return status
+}
+
+templ StatusChip(status string) {
+	<span class={ "inline-flex items-center rounded-full px-3 py-1 text-sm font-medium ring-1 ring-inset", statusColors[status] }>
+		{ StatusLabel(status) }
+	</span>
+}
+
+// BottomSheet is a native <dialog> pinned to the bottom of the screen. Open it with
+// a button that has commandfor={ id } command="show-modal"; tapping the backdrop closes it.
+templ BottomSheet(id, title string) {
+	<dialog id={ id } closedby="any" class="sheet rounded-t-2xl bg-card p-0 text-ink shadow-xl">
+		<div class="flex items-center justify-between border-b border-line px-4 py-2">
+			<h2 class="text-lg font-semibold">{ title }</h2>
+			<button type="button" commandfor={ id } command="close" class={ buttonClass("ghost") } aria-label="Fechar">✕</button>
+		</div>
+		<div class="max-h-[75vh] overflow-y-auto p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+			{ children... }
+		</div>
+	</dialog>
+}
+
+// MoneyInput is a text field that opens the numeric keypad. Parse its value with money.Parse.
+templ MoneyInput(name, label, value string, attrs templ.Attributes) {
+	<label class="block">
+		<span class="mb-1 block text-sm font-medium text-ink-muted">{ label }</span>
+		<div class="flex min-h-12 items-center rounded-xl border border-line bg-card px-4 focus-within:border-brand focus-within:ring-2 focus-within:ring-brand-soft">
+			<span class="mr-2 text-ink-muted">R$</span>
+			<input
+				type="text"
+				inputmode="decimal"
+				autocomplete="off"
+				pattern="[0-9.,]*"
+				name={ name }
+				value={ value }
+				placeholder="0,00"
+				class="w-full bg-transparent py-3 text-lg tabular-nums outline-none"
+				{ attrs... }
+			/>
+		</div>
+	</label>
+}
+
+// ToastRegion is the empty slot that Toast replaces out of band. Layout renders it once per page.
+templ ToastRegion() {
+	<div id="toast" aria-live="polite" class="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex justify-center px-4"></div>
+}
+
+// Toast swaps into ToastRegion with hx-swap-oob, so any htmx response can carry one.
+// kind is "ok" or "error".
+templ Toast(kind, msg string) {
+	<div id="toast" hx-swap-oob="true" aria-live="polite" class="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex justify-center px-4">
+		<div
+			if kind == "error" {
+				role="alert"
+			}
+			class={ "animate-toast rounded-xl px-4 py-3 text-base font-medium text-white shadow-lg", templ.KV("bg-ok", kind != "error"), templ.KV("bg-danger", kind == "error") }
+		>
+			{ msg }
+		</div>
+	</div>
+}
+
+// DevUI shows every component, for checking the kit on a phone at /dev/ui.
+templ DevUI() {
+	@Layout("UI kit") {
+		<main class="mx-auto max-w-lg space-y-6 p-4">
+			<h1 class="text-2xl font-bold">UI kit</h1>
+			<section class="space-y-3">
+				<h2 class="font-semibold text-ink-muted">Botões</h2>
+				<div class="flex flex-wrap gap-2">
+					@Button("primary", templ.Attributes{"type": "button"}) {
+						Enviar à cozinha
+					}
+					@Button("secondary", templ.Attributes{"type": "button"}) {
+						Copiar confirmação
+					}
+					@Button("danger", templ.Attributes{"type": "button"}) {
+						Cancelar
+					}
+					@Button("ghost", templ.Attributes{"type": "button"}) {
+						Voltar
+					}
+					@Button("primary", templ.Attributes{"type": "button", "disabled": true}) {
+						Fechar
+					}
+				</div>
+			</section>
+			<section class="space-y-3">
+				<h2 class="font-semibold text-ink-muted">Status</h2>
+				<div class="flex flex-wrap gap-2">
+					for _, s := range []string{"aberto", "cozinha", "pronto", "saiu", "fechado", "cancelado"} {
+						@StatusChip(s)
+					}
+				</div>
+			</section>
+			<section class="space-y-3">
+				<h2 class="font-semibold text-ink-muted">Card</h2>
+				@Card() {
+					<div class="flex items-center justify-between">
+						<div>
+							<p class="font-semibold">#12 Maria</p>
+							<p class="text-sm text-ink-muted">WhatsApp · Entrega</p>
+						</div>
+						@StatusChip("cozinha")
+					</div>
+					<p class="mt-2 text-lg font-bold tabular-nums">{ money.Format(3600) }</p>
+				}
+			</section>
+			<section class="space-y-3">
+				<h2 class="font-semibold text-ink-muted">Valor</h2>
+				@MoneyInput("valor", "Valor recebido", "", nil)
+			</section>
+			<section class="space-y-3">
+				<h2 class="font-semibold text-ink-muted">Bottom sheet e toast</h2>
+				<div class="flex flex-wrap gap-2">
+					@Button("secondary", templ.Attributes{"type": "button", "commandfor": "demo-sheet", "command": "show-modal"}) {
+						Abrir pedido
+					}
+					@Button("secondary", templ.Attributes{"type": "button", "hx-get": "/dev/ui/toast", "hx-swap": "none"}) {
+						Mostrar toast
+					}
+				</div>
+				@BottomSheet("demo-sheet", "Pedido #12") {
+					<ul class="divide-y divide-line">
+						<li class="flex justify-between py-3"><span>2x Hot roll</span><span class="tabular-nums">{ money.Format(3000) }</span></li>
+						<li class="flex justify-between py-3"><span>1x Coca-Cola Zero Lata</span><span class="tabular-nums">{ money.Format(600) }</span></li>
+					</ul>
+					<p class="mt-3 flex justify-between text-lg font-bold"><span>Total</span><span class="tabular-nums">{ money.Format(3600) }</span></p>
+				}
+			</section>
+		</main>
+	}
+}

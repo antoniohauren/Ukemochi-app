@@ -1,2 +1,33 @@
 @import "tailwindcss";
 @source "../internal/web";
+
+/* Theme tokens. Use them as bg-brand, text-ink-muted, border-line, etc. */
+@theme {
+  --color-surface: #fafaf9;
+  --color-card: #ffffff;
+  --color-line: #e7e5e4;
+  --color-ink: #1c1917;
+  --color-ink-muted: #78716c;
+  --color-brand: #b91c1c;
+  --color-brand-strong: #991b1b;
+  --color-brand-soft: #fee2e2;
+  --color-ok: #15803d;
+  --color-warn: #b45309;
+  --color-danger: #b91c1c;
+
+  --animate-toast: toast 3.5s ease-in-out forwards;
+  @keyframes toast {
+    0% { opacity: 0; transform: translateY(1rem); }
+    8%, 85% { opacity: 1; transform: none; }
+    100% { opacity: 0; transform: translateY(1rem); visibility: hidden; }
+  }
+}
+
+@layer base {
+  /* Avoid the grey flash on tap and the 300ms zoom delay on phones. */
+  html { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+  body { overscroll-behavior-y: contain; }
+
+  dialog.sheet { margin: auto auto 0; max-width: 32rem; width: 100%; }
+  dialog.sheet::backdrop { background: rgb(0 0 0 / 0.4); }
+}
