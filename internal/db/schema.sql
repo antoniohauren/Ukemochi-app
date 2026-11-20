@@ -82,3 +82,10 @@ FROM (SELECT o.id, o.payment, o.cash_given_cents AS cash, o.paid_at, o.created_a
 ALTER TABLE orders DROP COLUMN payment;
 ALTER TABLE orders DROP COLUMN paid_at;
 ALTER TABLE orders DROP COLUMN cash_given_cents;
+
+-- migrate: 4
+-- Opening cash per local day (YYYY-MM-DD, America/Sao_Paulo), for the expected cash in the report.
+CREATE TABLE cash_days (
+  day           TEXT PRIMARY KEY,
+  opening_cents INTEGER NOT NULL CHECK (opening_cents >= 0)
+);

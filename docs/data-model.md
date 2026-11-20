@@ -110,6 +110,10 @@ The day's order count and total come from the per-channel query over `order_item
 
 The bounds are the start and end of the local day (`America/Sao_Paulo`) converted to UTC.
 
+## Cash drawer
+
+`cash_days(day TEXT PRIMARY KEY, opening_cents INTEGER NOT NULL)` holds the caixa inicial of each local day (`YYYY-MM-DD`, São Paulo). The caixa esperado is `opening_cents` plus the report's `dinheiro` row, the cash parts of orders closed that day. PIX and cards don't count. A day with no row opens at 0.
+
 ## Migrations
 
 One embedded `schema.sql` with `PRAGMA user_version`. On start-up, the app applies each numbered step above the current version inside a transaction.
