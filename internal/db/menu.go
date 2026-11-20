@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"slices"
 	"strings"
 )
 
@@ -100,8 +101,49 @@ func (d *DB) CreateCategory(ctx context.Context, name string, position int64) (i
 	return id, uniqueErr(err)
 }
 
-func (d *DB) UpdateCategory(ctx context.Context, id int64, name string, position int64) error {
-	return uniqueErr(execOne(ctx, d, `UPDATE categories SET name = ?, position = ? WHERE id = ?`, name, position, id))
+func (d *DB) UpdateCategory(ctx context.Context, id int64, name string) error {
+	return uniqueErr(execOne(ctx, d, `UPDATE categories SET name = ? WHERE id = ?`, name, id))
+}
+
+// MoveCategory swaps a category with its neighbour above (up) or below, then renumbers
+// every category 0..n-1 so ties left by older data never block a move.
+func (d *DB) MoveCategory(ctx context.Context, id int64, up bool) error {
+	return d.tx(ctx, func(tx *sql.Tx) error {
+		rows, err := tx.QueryContext(ctx, `SELECT id FROM categories ORDER BY position, name`)
+		if err != nil {
+			return err
+		}
+		var ids []int64
+		for rows.Next() {
+			var v int64
+			if err := rows.Scan(&v); err != nil {
+				rows.Close()
+				return err
+			}
+			ids = append(ids, v)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		i := slices.Index(ids, id)
+		if i < 0 {
+			return ErrNotFound
+		}
+		j := i + 1
+		if up {
+			j = i - 1
+		}
+		if j >= 0 && j < len(ids) {
+			ids[i], ids[j] = ids[j], ids[i]
+		}
+		for pos, v := range ids {
+			if _, err := tx.ExecContext(ctx, `UPDATE categories SET position = ? WHERE id = ?`, pos, v); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // uniqueErr turns a UNIQUE constraint failure into ErrDuplicate.

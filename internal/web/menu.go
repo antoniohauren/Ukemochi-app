@@ -18,6 +18,7 @@ func (s *Server) registerMenu(mux *http.ServeMux) {
 	admin("GET "+menuURL, func(w http.ResponseWriter, r *http.Request) { s.renderMenu(w, r, http.StatusOK, "") })
 	admin("POST "+menuURL+"/categorias", s.menuWrite(s.saveCategory))
 	admin("POST "+menuURL+"/categorias/{id}", s.menuWrite(s.saveCategory))
+	admin("POST "+menuURL+"/categorias/{id}/mover", s.menuWrite(s.moveCategory))
 	admin("POST "+menuURL+"/itens", s.menuWrite(s.saveItem))
 	admin("POST "+menuURL+"/itens/{id}", s.menuWrite(s.saveItem))
 	admin("POST "+menuURL+"/produtos", s.menuWrite(s.saveProduct))
@@ -67,24 +68,34 @@ func (s *Server) renderMenu(w http.ResponseWriter, r *http.Request, status int, 
 	render(w, r, status, MenuPage(menu, errMsg))
 }
 
-func (s *Server) saveCategory(ctx context.Context, r *http.Request, id int64, _ []db.Category) (string, error) {
+func (s *Server) saveCategory(ctx context.Context, r *http.Request, id int64, menu []db.Category) (string, error) {
 	name, err := formText(r, "nome", "Nome", 40, true)
 	if err != nil {
 		return "", err
 	}
-	pos, err := formInt(r, "posicao", "Posição")
-	if err != nil {
-		return "", err
-	}
 	if id == 0 {
+		// New categories go last; menu is sorted by position.
+		var pos int64
+		if len(menu) > 0 {
+			pos = menu[len(menu)-1].Position + 1
+		}
 		id, err = s.DB.CreateCategory(ctx, name, pos)
 	} else {
-		err = s.DB.UpdateCategory(ctx, id, name, pos)
+		err = s.DB.UpdateCategory(ctx, id, name)
 	}
 	if errors.Is(err, db.ErrDuplicate) {
 		return "", inputError("Já existe uma categoria com esse nome.")
 	}
 	return "cat-" + strconv.FormatInt(id, 10), err
+}
+
+// moveCategory moves a category one step; direcao is "cima" or "baixo".
+func (s *Server) moveCategory(ctx context.Context, r *http.Request, id int64, _ []db.Category) (string, error) {
+	dir := r.PostFormValue("direcao")
+	if dir != "cima" && dir != "baixo" {
+		return "", inputError("Direção inválida.")
+	}
+	return "cat-" + strconv.FormatInt(id, 10), s.DB.MoveCategory(ctx, id, dir == "cima")
 }
 
 func (s *Server) saveItem(ctx context.Context, r *http.Request, id int64, menu []db.Category) (string, error) {

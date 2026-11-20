@@ -36,7 +36,7 @@ func TestMenuCRUD(t *testing.T) {
 	s, h, prod := dbServer(t)
 	ctx := context.Background()
 
-	if rec := adminDo(h, s, "POST", "/admin/cardapio/categorias", url.Values{"nome": {"Bebidas"}, "posicao": {"2"}}); rec.Code != http.StatusSeeOther {
+	if rec := adminDo(h, s, "POST", "/admin/cardapio/categorias", url.Values{"nome": {"Bebidas"}}); rec.Code != http.StatusSeeOther {
 		t.Fatalf("create category: %d %s", rec.Code, rec.Body)
 	}
 	if rec := adminDo(h, s, "POST", "/admin/cardapio/categorias", url.Values{"nome": {"Bebidas"}}); rec.Code != http.StatusUnprocessableEntity ||
@@ -85,5 +85,47 @@ func TestMenuCRUD(t *testing.T) {
 		if !strings.Contains(page, want) {
 			t.Errorf("menu page lacks %q", want)
 		}
+	}
+}
+
+func TestMoveCategory(t *testing.T) {
+	s, h, _ := dbServer(t) // creates "Sushi" (id 1)
+	ctx := context.Background()
+	names := func() string {
+		menu, err := s.DB.Menu(ctx, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, c := range menu {
+			out = append(out, c.Name)
+		}
+		return strings.Join(out, ",")
+	}
+
+	for _, n := range []string{"Bebidas", "Combos"} {
+		if rec := adminDo(h, s, "POST", "/admin/cardapio/categorias", url.Values{"nome": {n}}); rec.Code != http.StatusSeeOther {
+			t.Fatalf("create %s: %d", n, rec.Code)
+		}
+	}
+	if got := names(); got != "Sushi,Bebidas,Combos" {
+		t.Fatalf("new categories go last: %s", got)
+	}
+	if rec := adminDo(h, s, "POST", "/admin/cardapio/categorias/3/mover", url.Values{"direcao": {"cima"}}); rec.Code != http.StatusSeeOther {
+		t.Fatalf("move up: %d", rec.Code)
+	}
+	if got := names(); got != "Sushi,Combos,Bebidas" {
+		t.Fatalf("after up: %s", got)
+	}
+	adminDo(h, s, "POST", "/admin/cardapio/categorias/1/mover", url.Values{"direcao": {"cima"}}) // already first: no-op
+	adminDo(h, s, "POST", "/admin/cardapio/categorias/1/mover", url.Values{"direcao": {"baixo"}})
+	if got := names(); got != "Combos,Sushi,Bebidas" {
+		t.Fatalf("after down: %s", got)
+	}
+	if rec := adminDo(h, s, "POST", "/admin/cardapio/categorias/1/mover", url.Values{"direcao": {"x"}}); rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("bad direction: %d", rec.Code)
+	}
+	if rec := adminDo(h, s, "POST", "/admin/cardapio/categorias/99/mover", url.Values{"direcao": {"cima"}}); rec.Code != http.StatusNotFound {
+		t.Fatalf("missing category: %d", rec.Code)
 	}
 }
