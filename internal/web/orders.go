@@ -82,7 +82,8 @@ func parseNewOrder(r *http.Request) (db.NewOrder, error) {
 		PhoneLast4: strings.TrimSpace(r.PostFormValue("telefone")),
 		Notes:      strings.TrimSpace(r.PostFormValue("obs")),
 	}
-	if o.Consume == "" && o.Channel == "balcao" {
+	// Balcão is in-house, so it is always eaten in. The form's consumo radio always posts a value.
+	if o.Channel == "balcao" {
 		o.Consume = db.ConsumeLocal
 	}
 	if o.Consume == "" {
@@ -329,6 +330,8 @@ func errorStatus(err error) (int, string) {
 		return http.StatusNotFound, "Não encontrado."
 	case errors.Is(err, db.ErrUnpaid):
 		return http.StatusConflict, "Registre o pagamento antes de fechar o pedido."
+	case errors.Is(err, db.ErrCashShort):
+		return http.StatusConflict, "O dinheiro recebido não cobre o total. Atualize o pagamento."
 	case errors.Is(err, db.ErrNotEditable):
 		return http.StatusConflict, "Itens só podem ser alterados com o pedido aberto."
 	case errors.Is(err, db.ErrBadTransition):
