@@ -171,9 +171,24 @@ func TestAddItemRefused(t *testing.T) {
 func TestStatusTransitions(t *testing.T) {
 	ctx := context.Background()
 	d := openTest(t)
+	p := seed(t, d)
+	// order returns a new order holding one item, so it may go to the kitchen.
+	order := func(consume string) int64 {
+		id := newOrder(t, d, consume)
+		if err := d.AddItem(ctx, id, p, 1, ""); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+
+	t.Run("empty order stays out of the kitchen", func(t *testing.T) {
+		if err := d.SetStatus(ctx, newOrder(t, d, ConsumeLocal), StatusKitchen); !errors.Is(err, ErrEmptyOrder) {
+			t.Fatalf("empty to kitchen: %v", err)
+		}
+	})
 
 	t.Run("delivery full path", func(t *testing.T) {
-		id := newOrder(t, d, ConsumeDelivery)
+		id := order(ConsumeDelivery)
 		for _, s := range []string{StatusKitchen, StatusReady} {
 			if err := d.SetStatus(ctx, id, s); err != nil {
 				t.Fatalf("%s: %v", s, err)
@@ -214,7 +229,7 @@ func TestStatusTransitions(t *testing.T) {
 	})
 
 	t.Run("saiu refused for local", func(t *testing.T) {
-		id := newOrder(t, d, ConsumeLocal)
+		id := order(ConsumeLocal)
 		d.SetStatus(ctx, id, StatusKitchen)
 		d.SetStatus(ctx, id, StatusReady)
 		if err := d.SetStatus(ctx, id, StatusOut); !errors.Is(err, ErrBadTransition) {
@@ -230,7 +245,7 @@ func TestStatusTransitions(t *testing.T) {
 	})
 
 	t.Run("skips and cancel", func(t *testing.T) {
-		id := newOrder(t, d, ConsumeDelivery)
+		id := order(ConsumeDelivery)
 		if err := d.SetStatus(ctx, id, StatusReady); !errors.Is(err, ErrBadTransition) {
 			t.Fatalf("aberto>pronto: %v", err)
 		}

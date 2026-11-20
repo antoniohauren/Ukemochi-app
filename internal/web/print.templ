@@ -1,0 +1,29 @@
+package web
+
+import (
+	"fmt"
+
+	"github.com/antoniohauren/ukemochi/internal/db"
+)
+
+// TicketPage is the standalone 58mm ticket. It uses print.css, not Tailwind (decision 008),
+// and opens the print dialog on load.
+templ TicketPage(o db.Order, text string) {
+	<!DOCTYPE html>
+	<html lang="pt-BR">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<title>{ fmt.Sprintf("Ticket #%d", o.ID) }</title>
+			<link rel="stylesheet" href="/static/print.css"/>
+		</head>
+		<body>
+			<pre>{ text }</pre>
+			<nav class="no-print">
+				<button type="button" onclick="window.print()">Imprimir de novo</button>
+				<a href={ templ.SafeURL(orderURL(o.ID)) }>Voltar ao pedido</a>
+			</nav>
+			<script>window.addEventListener("load", () => window.print());</script>
+		</body>
+	</html>
+}

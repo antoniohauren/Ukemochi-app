@@ -2,7 +2,6 @@
 package web
 
 import (
-	"log"
 	"net/http"
 
 	"github.com/antoniohauren/ukemochi/internal/db"
@@ -17,15 +16,9 @@ type Server struct {
 
 // Routes registers every feature's routes on mux.
 func (s *Server) Routes(mux *http.ServeMux) {
-	s.registerHome(mux)
+	s.registerOrders(mux)
+	s.registerMenu(mux)
+	s.registerPrint(mux)
 	s.registerDev(mux)
 	s.registerAuth(mux)
-}
-
-func (s *Server) registerHome(mux *http.ServeMux) {
-	mux.Handle("GET /{$}", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if err := Home().Render(r.Context(), w); err != nil {
-			log.Printf("render home: %v", err)
-		}
-	}))
 }

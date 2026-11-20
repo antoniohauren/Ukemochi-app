@@ -11,7 +11,7 @@ TAILWIND_ARCH := $(if $(filter arm64 aarch64,$(UNAME_M)),arm64,x64)
 TAILWIND_ASSET := tailwindcss-$(TAILWIND_OS)-$(TAILWIND_ARCH)
 TAILWIND_URL := https://github.com/tailwindlabs/tailwindcss/releases/download/$(TAILWIND_VERSION)
 
-.PHONY: gen run test build-arm64
+.PHONY: gen run test seed build-arm64
 
 $(TAILWIND):
 	mkdir -p bin
@@ -35,6 +35,9 @@ run: gen
 
 test: gen
 	go test ./...
+
+seed:
+	go run ./cmd/seed
 
 build-arm64: gen
 	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o bin/ukemochi-arm64 ./cmd/ukemochi
