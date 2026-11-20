@@ -10,6 +10,9 @@ import (
 // ErrNotFound is returned when a row with the given id does not exist.
 var ErrNotFound = errors.New("not found")
 
+// ErrDuplicate is returned when a category name is already taken.
+var ErrDuplicate = errors.New("duplicate")
+
 type Category struct {
 	ID       int64
 	Name     string
@@ -93,11 +96,20 @@ func (d *DB) Menu(ctx context.Context, activeOnly bool) ([]Category, error) {
 }
 
 func (d *DB) CreateCategory(ctx context.Context, name string, position int64) (int64, error) {
-	return insert(ctx, d, `INSERT INTO categories (name, position) VALUES (?, ?)`, name, position)
+	id, err := insert(ctx, d, `INSERT INTO categories (name, position) VALUES (?, ?)`, name, position)
+	return id, uniqueErr(err)
 }
 
 func (d *DB) UpdateCategory(ctx context.Context, id int64, name string, position int64) error {
-	return execOne(ctx, d, `UPDATE categories SET name = ?, position = ? WHERE id = ?`, name, position, id)
+	return uniqueErr(execOne(ctx, d, `UPDATE categories SET name = ?, position = ? WHERE id = ?`, name, position, id))
+}
+
+// uniqueErr turns a UNIQUE constraint failure into ErrDuplicate.
+func uniqueErr(err error) error {
+	if err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed") {
+		return ErrDuplicate
+	}
+	return err
 }
 
 func (d *DB) CreateItem(ctx context.Context, it Item) (int64, error) {

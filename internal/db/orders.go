@@ -13,6 +13,7 @@ var (
 	ErrUnpaid        = errors.New("pedido sem pagamento não pode ser fechado")
 	ErrNotEditable   = errors.New("itens só podem ser alterados com o pedido aberto")
 	ErrInvalid       = errors.New("valor inválido")
+	ErrEmptyOrder    = errors.New("pedido sem itens não pode ir para a cozinha")
 )
 
 // Order statuses, channels, consume modes and payment methods match the CHECK constraints in schema.sql.
@@ -63,6 +64,7 @@ type OrderItem struct {
 	UnitPriceCents int64
 	NameSnapshot   string
 	Note           string
+	PrintableName  string // current products.printable_name, for the ticket; filled by GetOrder
 }
 
 // CanTransition reports whether an order may move from status from to status to.
@@ -116,18 +118,21 @@ func (d *DB) GetOrder(ctx context.Context, id int64) (Order, error) {
 	if err != nil {
 		return o, err
 	}
-	o.Items, err = queryAll(ctx, d, `SELECT id, order_id, product_id, qty, unit_price_cents, name_snapshot, note
-		FROM order_items WHERE order_id = ? ORDER BY id`,
+	// Products are never deleted, so the join always matches.
+	o.Items, err = queryAll(ctx, d, `SELECT oi.id, oi.order_id, oi.product_id, oi.qty, oi.unit_price_cents,
+		oi.name_snapshot, oi.note, p.printable_name
+		FROM order_items oi JOIN products p ON p.id = oi.product_id WHERE oi.order_id = ? ORDER BY oi.id`,
 		func(r *sql.Rows, it *OrderItem) error {
-			return r.Scan(&it.ID, &it.OrderID, &it.ProductID, &it.Qty, &it.UnitPriceCents, &it.NameSnapshot, &it.Note)
+			return r.Scan(&it.ID, &it.OrderID, &it.ProductID, &it.Qty, &it.UnitPriceCents, &it.NameSnapshot, &it.Note,
+				&it.PrintableName)
 		}, id)
 	return o, err
 }
 
-// ListOpenOrders returns orders that are neither fechado nor cancelado, oldest first, without items.
+// ListOpenOrders returns orders that are neither fechado nor cancelado, newest first, without items.
 func (d *DB) ListOpenOrders(ctx context.Context) ([]Order, error) {
 	return queryAll(ctx, d, `SELECT `+orderCols+` FROM orders o
-		WHERE o.status NOT IN ('fechado', 'cancelado') ORDER BY o.created_at, o.id`,
+		WHERE o.status NOT IN ('fechado', 'cancelado') ORDER BY o.created_at DESC, o.id DESC`,
 		func(r *sql.Rows, o *Order) error { return scanOrder(r, o) })
 }
 
@@ -193,7 +198,7 @@ func (d *DB) SetItemQty(ctx context.Context, orderID, itemID, qty int64) error {
 }
 
 // SetStatus moves an order to a new status after checking the state machine in docs/flows.md.
-// Closing needs a recorded payment.
+// Closing needs a recorded payment and sending to the kitchen needs at least one item.
 func (d *DB) SetStatus(ctx context.Context, id int64, to string) error {
 	return d.tx(ctx, func(tx *sql.Tx) error {
 		var from, consume, payment string
@@ -207,6 +212,15 @@ func (d *DB) SetStatus(ctx context.Context, id int64, to string) error {
 		}
 		if !CanTransition(from, to, consume) {
 			return ErrBadTransition
+		}
+		if to == StatusKitchen {
+			var n int
+			if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM order_items WHERE order_id = ?`, id).Scan(&n); err != nil {
+				return err
+			}
+			if n == 0 {
+				return ErrEmptyOrder
+			}
 		}
 		if to == StatusClosed {
 			if payment == "" {
