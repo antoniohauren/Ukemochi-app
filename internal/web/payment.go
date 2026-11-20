@@ -26,6 +26,10 @@ func (s *Server) setPayment(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, err)
 		return
 	}
+	if !canPay(o) {
+		fail(w, r, inputError("Pedido fechado ou cancelado: reabra para alterar o pagamento."))
+		return
+	}
 	method := r.PostFormValue("metodo")
 	if !slices.Contains(db.PaymentMethods, method) {
 		fail(w, r, inputError("Escolha a forma de pagamento."))

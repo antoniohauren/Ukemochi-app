@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -65,8 +66,13 @@ func TestSetPayment(t *testing.T) {
 	}
 
 	page := do(h, "GET", orderURL(id), nil, false).Body.String()
-	if !strings.Contains(page, "Registre o pagamento para fechar") {
-		t.Error("editor should explain the disabled close button")
+	if !strings.Contains(page, "Registre o pagamento para fechar") || !regexp.MustCompile(`<button[^>]* disabled[ >][^>]*>\s*Fechar`).MatchString(page) {
+		t.Error("editor should disable the close button and explain why")
+	}
+
+	rec := do(h, "POST", orderURL(id)+"/pagamento", url.Values{"metodo": {"cheque"}}, true)
+	if rec.Code != http.StatusOK || rec.Header().Get("HX-Reswap") != "none" || !strings.Contains(rec.Body.String(), "Escolha a forma") {
+		t.Errorf("htmx error: code %d, headers %v, body %s", rec.Code, rec.Header(), rec.Body)
 	}
 
 	for _, tc := range []struct {
@@ -86,7 +92,7 @@ func TestSetPayment(t *testing.T) {
 		t.Fatalf("payment recorded after invalid input: %q", o.Payment)
 	}
 
-	rec := do(h, "POST", orderURL(id)+"/pagamento", url.Values{"metodo": {"dinheiro"}, "valor": {"50"}}, true)
+	rec = do(h, "POST", orderURL(id)+"/pagamento", url.Values{"metodo": {"dinheiro"}, "valor": {"50"}}, true)
 	if rec.Header().Get("HX-Redirect") != orderURL(id) {
 		t.Fatalf("code %d, headers %v, body %s", rec.Code, rec.Header(), rec.Body)
 	}
@@ -99,6 +105,14 @@ func TestSetPayment(t *testing.T) {
 		t.Error("editor should show the change and an enabled close button")
 	}
 
+	// Cash that no longer covers the total (items added after reopening) is flagged.
+	if _, err := s.DB.Exec(`UPDATE orders SET cash_given_cents = 1000 WHERE id = ?`, id); err != nil {
+		t.Fatal(err)
+	}
+	if page := do(h, "GET", orderURL(id), nil, false).Body.String(); !strings.Contains(page, "Faltam R$ 20,00") {
+		t.Error("editor should flag cash short of the total")
+	}
+
 	// Switching to card drops the cash amount.
 	do(h, "POST", orderURL(id)+"/pagamento", url.Values{"metodo": {"credito"}, "valor": {"50"}}, false)
 	if o, _ := s.DB.GetOrder(ctx, id); o.Payment != "credito" || o.CashGivenCents != 0 {
@@ -108,7 +122,7 @@ func TestSetPayment(t *testing.T) {
 	if err := s.DB.SetStatus(ctx, id, db.StatusCancelled); err != nil {
 		t.Fatal(err)
 	}
-	if rec := do(h, "POST", orderURL(id)+"/pagamento", url.Values{"metodo": {"pix"}}, false); rec.Code != http.StatusConflict {
+	if rec := do(h, "POST", orderURL(id)+"/pagamento", url.Values{"metodo": {"pix"}}, false); rec.Code != http.StatusUnprocessableEntity {
 		t.Errorf("paying a cancelled order: code %d", rec.Code)
 	}
 }

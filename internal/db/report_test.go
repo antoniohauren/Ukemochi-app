@@ -45,6 +45,16 @@ func TestDailyReport(t *testing.T) {
 		time.Now().Add(-24*time.Hour).UTC().Format(timeFormat), yesterday); err != nil {
 		t.Fatal(err)
 	}
+	cancelled := newOrder(t, d, ConsumeLocal)
+	if err := d.AddItem(ctx, cancelled, p, 9, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.SetPayment(ctx, cancelled, "pix", 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.SetStatus(ctx, cancelled, StatusCancelled); err != nil {
+		t.Fatal(err)
+	}
 	unpaid := newOrder(t, d, ConsumeLocal)
 	if err := d.AddItem(ctx, unpaid, p, 4, ""); err != nil {
 		t.Fatal(err)
@@ -68,6 +78,19 @@ func TestDailyReport(t *testing.T) {
 	}
 	if len(rep.TopItems) != 1 || rep.TopItems[0] != (TopItem{"Coca-Cola Zero Lata", 6, 3600}) {
 		t.Errorf("TopItems = %+v", rep.TopItems)
+	}
+
+	// The range is half-open: an order closed exactly at `to` belongs to the next day.
+	var closedAt string
+	if err := d.QueryRow(`SELECT MAX(closed_at) FROM orders WHERE status = 'fechado'`).Scan(&closedAt); err != nil {
+		t.Fatal(err)
+	}
+	at, _ := time.Parse(timeFormat, closedAt)
+	if rep, _ := d.DailyReport(ctx, at.Add(-time.Hour), at); rep.Orders != 0 {
+		t.Errorf("order closed at the upper bound counted: %+v", rep)
+	}
+	if rep, _ := d.DailyReport(ctx, at, at.Add(time.Second)); rep.Orders == 0 {
+		t.Error("order closed at the lower bound not counted")
 	}
 
 	empty, err := d.DailyReport(ctx, from.Add(-72*time.Hour), from.Add(-48*time.Hour))
