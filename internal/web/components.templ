@@ -76,13 +76,26 @@ templ StatusChip(status string) {
 templ BottomSheet(id, title string) {
 	<dialog id={ id } closedby="any" class="sheet rounded-t-2xl bg-card p-0 text-ink shadow-xl">
 		<div class="flex items-center justify-between border-b border-line px-4 py-2">
-			<h2 class="text-lg font-semibold">{ title }</h2>
+			@sheetTitle(id, title, false)
 			<button type="button" onclick="this.closest('dialog').close()" class={ buttonClass("ghost") } aria-label="Fechar">✕</button>
 		</div>
-		<div class="max-h-[75vh] overflow-y-auto p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+		// Bottom padding is a spacer, not padding, so sticky children (like a step's Voltar) pin to the very bottom.
+		<div class="min-h-0 flex-1 overflow-y-auto px-4 pt-4">
 			{ children... }
+			<div class="h-[max(1rem,env(safe-area-inset-bottom))]"></div>
 		</div>
 	</dialog>
+}
+
+// sheetTitle is a BottomSheet's heading. oob marks it for an htmx out-of-band swap, so a step can rename the sheet.
+templ sheetTitle(sheetID, title string, oob bool) {
+	<h2
+		id={ sheetID + "-titulo" }
+		if oob {
+			hx-swap-oob="true"
+		}
+		class="min-w-0 truncate text-lg font-semibold"
+	>{ title }</h2>
 }
 
 // MoneyInput is a text field that opens the numeric keypad. Parse its value with money.Parse.

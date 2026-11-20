@@ -296,6 +296,11 @@ func TestAddItemSteps(t *testing.T) {
 			}
 		}
 	}
+	// htmx steps rename the sheet to the current pick and offer a way back.
+	if body := do(h, "GET", "/pedidos/1/adicionar?item=1", nil, true).Body.String(); !strings.Contains(body, `id="add-sheet-titulo" hx-swap-oob="true"`) ||
+		!strings.Contains(body, "Voltar") || !strings.Contains(body, "?categoria=1") {
+		t.Errorf("step title: %s", body)
+	}
 	for _, target := range []string{"/pedidos/1/adicionar?categoria=99", "/pedidos/1/adicionar?item=99", "/pedidos/1/adicionar?produto=99", "/pedidos/1/adicionar?produto=x", "/pedidos/99/adicionar"} {
 		if rec := do(h, "GET", target, nil, false); rec.Code != http.StatusNotFound {
 			t.Errorf("%s: code %d", target, rec.Code)

@@ -201,50 +201,53 @@ func (s *Server) addItemStep(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, err)
 		return
 	}
-	step, err := pickStep(r, o.ID, menu)
+	step, title, err := pickStep(r, o.ID, menu)
 	if err != nil {
 		fail(w, r, err)
 		return
 	}
-	if !isHX(r) {
-		step = AddItemPage(o, step)
+	if isHX(r) {
+		step = AddStepHX(title, step)
+	} else {
+		step = AddItemPage(o, title, step)
 	}
 	render(w, r, http.StatusOK, step)
 }
 
-func pickStep(r *http.Request, orderID int64, menu []db.Category) (templ.Component, error) {
+// pickStep returns the add-item step for the query and the title naming the current pick.
+func pickStep(r *http.Request, orderID int64, menu []db.Category) (templ.Component, string, error) {
 	q := r.URL.Query()
 	if v := q.Get("produto"); v != "" {
 		for _, c := range menu {
 			for _, it := range c.Items {
 				for _, p := range it.Products {
 					if strconv.FormatInt(p.ID, 10) == v {
-						return AddQtyStep(orderID, c, it, p), nil
+						return AddQtyStep(orderID, c, it, p), db.DisplayName(it.Name, p.Variant, p.Size), nil
 					}
 				}
 			}
 		}
-		return nil, db.ErrNotFound
+		return nil, "", db.ErrNotFound
 	}
 	if v := q.Get("item"); v != "" {
 		for _, c := range menu {
 			for _, it := range c.Items {
 				if strconv.FormatInt(it.ID, 10) == v {
-					return AddVariantStep(orderID, c, it), nil
+					return AddVariantStep(orderID, c, it), it.Name, nil
 				}
 			}
 		}
-		return nil, db.ErrNotFound
+		return nil, "", db.ErrNotFound
 	}
 	if v := q.Get("categoria"); v != "" {
 		for _, c := range menu {
 			if strconv.FormatInt(c.ID, 10) == v {
-				return AddItemStep(orderID, c), nil
+				return AddItemStep(orderID, c), c.Name, nil
 			}
 		}
-		return nil, db.ErrNotFound
+		return nil, "", db.ErrNotFound
 	}
-	return AddCategoryStep(orderID, menu), nil
+	return AddCategoryStep(orderID, menu), "Adicionar item", nil
 }
 
 // setItemQty handles PATCH (and its POST fallback) with qty, and DELETE. A qty of 0 removes the line.

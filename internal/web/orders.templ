@@ -185,7 +185,9 @@ templ orderHeader(o db.Order, oob bool) {
 		class="sticky top-0 z-10 border-b border-line bg-surface/95 p-4 backdrop-blur"
 	>
 		<div class="flex items-center gap-2">
-			<a href="/" class={ buttonClass("ghost") } aria-label="Voltar">←</a>
+			<a href="/" class={ buttonClass("ghost") + " px-3" } aria-label="Início">
+				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-6" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"></path><path d="M5 9v11h14V9"></path><path d="M10 20v-6h4v6"></path></svg>
+			</a>
 			<div class="min-w-0 flex-1">
 				<h1 class="truncate text-lg font-bold">#{ strconv.FormatInt(o.ID, 10) } { o.ClientName }</h1>
 				<p class="text-sm text-ink-muted">
@@ -416,18 +418,33 @@ templ stepLink(url, class string) {
 }
 
 // AddItemPage is an add-item step as a full page, for browsers without htmx.
-templ AddItemPage(o db.Order, step templ.Component) {
+templ AddItemPage(o db.Order, title string, step templ.Component) {
 	@Layout(fmt.Sprintf("Adicionar item · Pedido #%d · Ukemochi", o.ID)) {
 		<main class="mx-auto max-w-lg">
 			<header class="flex items-center gap-2 border-b border-line p-4">
 				<a href={ templ.SafeURL(orderURL(o.ID)) } class={ buttonClass("ghost") } aria-label="Voltar">←</a>
-				<h1 class="text-lg font-bold">Adicionar item · #{ strconv.FormatInt(o.ID, 10) }</h1>
+				<h1 class="truncate text-lg font-bold">{ title } · #{ strconv.FormatInt(o.ID, 10) }</h1>
 			</header>
 			<div id="add-step" class="p-4">
 				@step
 			</div>
 		</main>
 	}
+}
+
+// AddStepHX is an add-item step for htmx: it also renames the sheet to the current pick.
+templ AddStepHX(title string, step templ.Component) {
+	@sheetTitle("add-sheet", title, true)
+	@step
+}
+
+// backStep is the full-width link back to the previous add-item step, pinned to the sheet's bottom while the cards scroll.
+templ backStep(url string) {
+	<div class="sticky bottom-0 grid bg-card pt-3 pb-[env(safe-area-inset-bottom)]">
+		@stepLink(url, buttonClass("secondary")) {
+			Voltar
+		}
+	</div>
 }
 
 // AddCategoryStep is step 1: pick a category.
@@ -450,9 +467,6 @@ templ AddCategoryStep(orderID int64, menu []db.Category) {
 // AddItemStep is step 2: pick an item of the category. An item with one product skips to quantity.
 templ AddItemStep(orderID int64, c db.Category) {
 	<div class="space-y-3">
-		@stepLink(addItemURL(orderID, "", 0), buttonClass("ghost")) {
-			← { c.Name }
-		}
 		<div class="grid grid-cols-2 gap-2">
 			for _, it := range c.Items {
 				if len(it.Products) == 1 {
@@ -468,15 +482,13 @@ templ AddItemStep(orderID int64, c db.Category) {
 				}
 			}
 		</div>
+		@backStep(addItemURL(orderID, "", 0))
 	</div>
 }
 
 // AddVariantStep is step 3: pick a product (variant/size) of the item.
 templ AddVariantStep(orderID int64, c db.Category, it db.Item) {
 	<div class="space-y-3">
-		@stepLink(addItemURL(orderID, "categoria", c.ID), buttonClass("ghost")) {
-			← { it.Name }
-		}
 		<div class="grid grid-cols-2 gap-2">
 			for _, p := range it.Products {
 				@stepLink(addItemURL(orderID, "produto", p.ID), stepTile) {
@@ -485,25 +497,14 @@ templ AddVariantStep(orderID int64, c db.Category, it db.Item) {
 				}
 			}
 		</div>
+		@backStep(addItemURL(orderID, "categoria", c.ID))
 	</div>
 }
 
 // AddQtyStep is step 4: pick the quantity and add.
 templ AddQtyStep(orderID int64, c db.Category, it db.Item, p db.Product) {
 	<div class="space-y-4">
-		if len(it.Products) > 1 {
-			@stepLink(addItemURL(orderID, "item", it.ID), buttonClass("ghost")) {
-				← { it.Name }
-			}
-		} else {
-			@stepLink(addItemURL(orderID, "categoria", c.ID), buttonClass("ghost")) {
-				← { c.Name }
-			}
-		}
-		<div>
-			<p class="text-lg font-semibold">{ db.DisplayName(it.Name, p.Variant, p.Size) }</p>
-			<p class="tabular-nums text-ink-muted">{ money.Format(p.PriceCents) } cada</p>
-		</div>
+		<p class="tabular-nums text-ink-muted">{ money.Format(p.PriceCents) } cada</p>
 		<form method="post" action={ orderURL(orderID) + "/itens" } hx-post={ orderURL(orderID) + "/itens" } hx-target="#pedido-itens" hx-swap="innerHTML">
 			<input type="hidden" name="produto" value={ strconv.FormatInt(p.ID, 10) }/>
 			<div class="flex items-center gap-2">
@@ -517,6 +518,11 @@ templ AddQtyStep(orderID int64, c db.Category, it db.Item, p db.Product) {
 				</div>
 			</div>
 		</form>
+		if len(it.Products) > 1 {
+			@backStep(addItemURL(orderID, "item", it.ID))
+		} else {
+			@backStep(addItemURL(orderID, "categoria", c.ID))
+		}
 	</div>
 }
 
