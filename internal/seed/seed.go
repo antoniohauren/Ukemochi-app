@@ -154,7 +154,7 @@ var sample = []struct {
 		r("Hot camarão cheese", 32).short("Camarão Chs"),
 	)...)},
 	// shortcut: 1/2 priced at half of the menu's whole price, fix in admin if different.
-	{"Sushi Dog", sized("Dog", []string{"1/2", "Inteiro"},
+	{"Sushi Dog", sized("Dog", []string{"1/2", ""},
 		r("Salmão cheese", 19, 38),
 		r("Salmão maçaricado", 19, 38),
 		r("Dinamite", 19, 38),
