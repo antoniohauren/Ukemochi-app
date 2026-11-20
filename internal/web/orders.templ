@@ -56,7 +56,9 @@ templ OrderListPage(orders []db.Order) {
 
 func optionClass() string {
 	return "flex min-h-12 cursor-pointer items-center justify-center rounded-xl border border-line bg-card px-4 font-semibold " +
-		"has-[:checked]:border-brand has-[:checked]:bg-brand-soft has-[:checked]:text-brand-strong"
+		"has-[:checked]:border-brand has-[:checked]:bg-brand-soft has-[:checked]:text-brand-ink " +
+		// Dark red on near-black is hard to read: in dark mode the chosen tile is solid, like a primary button.
+		"dark:has-[:checked]:bg-brand dark:has-[:checked]:text-white"
 }
 
 func selectedVariant(selected bool) string {
