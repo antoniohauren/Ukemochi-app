@@ -1,0 +1,77 @@
+package web
+
+import (
+	"github.com/antoniohauren/ukemochi/internal/db"
+	"github.com/antoniohauren/ukemochi/internal/money"
+)
+
+// PaymentPanel shows the recorded payment and, while the order is not finished, the form to record it.
+templ PaymentPanel(o db.Order) {
+	<section class="space-y-3 rounded-xl border border-line p-3" aria-labelledby="pagamento-titulo">
+		<h3 id="pagamento-titulo" class="font-semibold">Pagamento</h3>
+		if o.Payment == "" {
+			<p class="text-ink-muted">Não pago.</p>
+		} else {
+			<p class="font-medium text-ok">
+				Pago com { paymentLabels[o.Payment] } às { localTime(o.PaidAt, "15:04") }
+			</p>
+			if o.CashGivenCents > 0 {
+				{{ c, _ := money.Change(o.TotalCents, o.CashGivenCents) }}
+				<p class="text-sm tabular-nums text-ink-muted">Recebido { money.Format(o.CashGivenCents) } · Troco { money.Format(c) }</p>
+			}
+		}
+		if canPay(o) {
+			<form
+				method="post"
+				action={ orderURL(o.ID) + "/pagamento" }
+				hx-post={ orderURL(o.ID) + "/pagamento" }
+				hx-target="#pedido-itens"
+				class="group space-y-3"
+			>
+				<fieldset>
+					<legend class="sr-only">Forma de pagamento</legend>
+					<div class="grid grid-cols-2 gap-2">
+						for _, m := range db.PaymentMethods {
+							<label class={ optionClass() }>
+								<input type="radio" name="metodo" value={ m } id={ "pagamento-" + m } class="sr-only" required checked?={ o.Payment == m }/>
+								{ paymentLabels[m] }
+							</label>
+						}
+					</div>
+				</fieldset>
+				// Shown only while Dinheiro is checked.
+				<div class="hidden space-y-1 group-has-[#pagamento-dinheiro:checked]:block">
+					@MoneyInput("valor", "Valor recebido (opcional)", cashValue(o), templ.Attributes{
+						"hx-get":     orderURL(o.ID) + "/troco",
+						"hx-trigger": "input changed delay:300ms",
+						"hx-target":  "#troco",
+						"hx-swap":    "outerHTML",
+					})
+					@ChangeLine(changeText(o.TotalCents, cashValue(o)))
+				</div>
+				<div class="grid">
+					@Button("secondary", templ.Attributes{"type": "submit"}) {
+						if o.Payment == "" {
+							Registrar pagamento
+						} else {
+							Alterar pagamento
+						}
+					}
+				</div>
+			</form>
+		}
+	</section>
+}
+
+// ChangeLine is the live change text under the cash field, swapped by GET /pedidos/{id}/troco.
+templ ChangeLine(text string, ok bool) {
+	<p id="troco" aria-live="polite" class={ "min-h-6 text-lg font-semibold tabular-nums", templ.KV("text-danger", !ok) }>{ text }</p>
+}
+
+func cashValue(o db.Order) string {
+	if o.CashGivenCents == 0 {
+		return ""
+	}
+	// Format gives "R$ 50,00"; the field already shows the R$ prefix.
+	return money.Format(o.CashGivenCents)[len("R$ "):]
+}
