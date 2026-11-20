@@ -69,7 +69,7 @@ Status transitions are checked on the server. See the rules in [flows](flows.md)
 
 ## Printing
 
-With `PRINTER_BT` set to a printer's Bluetooth address, the server prints the ticket itself: `POST /pedidos/{id}/imprimir` and sending an order to the kitchen open an RFCOMM connection (channel 1), send ESC/POS text and disconnect (`internal/btprint`, Linux only). Text goes out in code page CP860 (`ESC t 3`), so accents print. Pair and trust the printer on the server once (`bluetoothctl pair <mac>`, `trust <mac>`). Do not "connect" it in the desktop Bluetooth menu: a serial-only printer drops that link after a moment, which is normal.
+With `PRINTER_BT` set to a printer's Bluetooth address, the server prints the ticket itself: `POST /pedidos/{id}/imprimir` and sending an order to the kitchen open an RFCOMM connection (channel 1), send ESC/POS text and disconnect (`internal/btprint`, Linux and Windows). Text goes out in code page CP860 (`ESC t 3`), so accents print. Pair and trust the printer on the server once: on Linux `bluetoothctl pair <mac>`, `trust <mac>`; on Windows pair it in Settings > Bluetooth & devices (Windows uses Winsock `AF_BTH` sockets with the same MAC, so the COM port it creates is not needed). On Windows without make, `.\make.ps1 gen|run|test|seed|build` replaces the Makefile. Do not "connect" it in the desktop Bluetooth menu: a serial-only printer drops that link after a moment, which is normal.
 
 Without `PRINTER_BT`, or when the printer does not answer on kitchen send, `/pedidos/{id}/imprimir` is a standalone page that calls `window.print()` on load. The phone sends it to the printer through the Android print service (for example RawBT or the printer vendor's app).
 

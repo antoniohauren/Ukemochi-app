@@ -6,9 +6,10 @@ HTMX_SHA256 := e209dda5c8235479f3166defc7750e1dbcd5a5c1808b7792fc2e6733768fb447
 
 UNAME_S := $(shell uname -s)
 UNAME_M := $(shell uname -m)
-TAILWIND_OS := $(if $(filter Darwin,$(UNAME_S)),macos,linux)
+TAILWIND_OS := $(if $(filter Darwin,$(UNAME_S)),macos,$(if $(filter MINGW% MSYS% CYGWIN%,$(UNAME_S)),windows,linux))
+TAILWIND_EXT := $(if $(filter windows,$(TAILWIND_OS)),.exe,)
 TAILWIND_ARCH := $(if $(filter arm64 aarch64,$(UNAME_M)),arm64,x64)
-TAILWIND_ASSET := tailwindcss-$(TAILWIND_OS)-$(TAILWIND_ARCH)
+TAILWIND_ASSET := tailwindcss-$(TAILWIND_OS)-$(TAILWIND_ARCH)$(TAILWIND_EXT)
 TAILWIND_URL := https://github.com/tailwindlabs/tailwindcss/releases/download/$(TAILWIND_VERSION)
 
 .PHONY: gen run test seed build-arm64 build-amd64 build-windows
