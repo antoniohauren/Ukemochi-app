@@ -11,6 +11,7 @@ import (
 var (
 	ErrBadTransition = errors.New("mudança de status não permitida")
 	ErrUnpaid        = errors.New("pedido sem pagamento não pode ser fechado")
+	ErrCashShort     = errors.New("dinheiro recebido não cobre o total")
 	ErrNotEditable   = errors.New("itens só podem ser alterados com o pedido aberto")
 	ErrInvalid       = errors.New("valor inválido")
 	ErrEmptyOrder    = errors.New("pedido sem itens não pode ir para a cozinha")
@@ -202,8 +203,10 @@ func (d *DB) SetItemQty(ctx context.Context, orderID, itemID, qty int64) error {
 func (d *DB) SetStatus(ctx context.Context, id int64, to string) error {
 	return d.tx(ctx, func(tx *sql.Tx) error {
 		var from, consume, payment string
-		err := tx.QueryRowContext(ctx, `SELECT status, consume, COALESCE(payment, '') FROM orders WHERE id = ?`, id).
-			Scan(&from, &consume, &payment)
+		var cash, total int64
+		err := tx.QueryRowContext(ctx, `SELECT status, consume, COALESCE(payment, ''), COALESCE(cash_given_cents, 0),
+			(SELECT COALESCE(SUM(qty * unit_price_cents), 0) FROM order_items WHERE order_id = orders.id)
+			FROM orders WHERE id = ?`, id).Scan(&from, &consume, &payment, &cash, &total)
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrNotFound
 		}
@@ -225,6 +228,9 @@ func (d *DB) SetStatus(ctx context.Context, id int64, to string) error {
 		if to == StatusClosed {
 			if payment == "" {
 				return ErrUnpaid
+			}
+			if cash > 0 && cash < total {
+				return ErrCashShort
 			}
 			return execOne(ctx, tx, `UPDATE orders SET status = ?, closed_at = ? WHERE id = ?`, to, now(), id)
 		}

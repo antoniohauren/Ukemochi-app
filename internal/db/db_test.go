@@ -228,6 +228,19 @@ func TestStatusTransitions(t *testing.T) {
 		}
 	})
 
+	t.Run("cash short of the total refuses close", func(t *testing.T) {
+		id := order(ConsumeLocal)
+		d.SetStatus(ctx, id, StatusKitchen)
+		d.SetStatus(ctx, id, StatusReady)
+		// Cash recorded before items were added no longer covers the total.
+		if _, err := d.Exec(`UPDATE orders SET payment = 'dinheiro', paid_at = '2026-01-01T00:00:00Z', cash_given_cents = 1 WHERE id = ?`, id); err != nil {
+			t.Fatal(err)
+		}
+		if err := d.SetStatus(ctx, id, StatusClosed); !errors.Is(err, ErrCashShort) {
+			t.Fatalf("close with short cash: %v", err)
+		}
+	})
+
 	t.Run("saiu refused for local", func(t *testing.T) {
 		id := order(ConsumeLocal)
 		d.SetStatus(ctx, id, StatusKitchen)

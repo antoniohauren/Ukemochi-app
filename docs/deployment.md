@@ -60,7 +60,7 @@ WantedBy=multi-user.target
 ```
 ADDR=127.0.0.1:8080
 DB_PATH=/var/lib/ukemochi/ukemochi.db
-ADMIN_PIN=...
+ADMIN_PIN=...        # at least 6 characters
 SESSION_KEY=...
 TZ=America/Sao_Paulo
 ```
@@ -77,7 +77,16 @@ GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o ukemochi ./cmd/ukemochi
 Run a daily online backup with cron. It is safe while the app is running:
 
 ```
-0 4 * * * sqlite3 /var/lib/ukemochi/ukemochi.db ".backup '/var/backups/ukemochi-$(date +\%F).db'"
+0 4 * * * ukemochi sqlite3 -cmd ".timeout 5000" /var/lib/ukemochi/ukemochi.db ".backup '/var/backups/ukemochi/ukemochi-$(date +\%F).db'" && find /var/backups/ukemochi -name 'ukemochi-*.db' -mtime +30 -delete
+```
+
+This is `deploy/ukemochi-backup.cron`. Install it and create the backup directory:
+
+```sh
+sudo apt install sqlite3
+sudo mkdir -p /var/backups/ukemochi
+sudo chown ukemochi: /var/backups/ukemochi
+sudo cp deploy/ukemochi-backup.cron /etc/cron.d/ukemochi-backup
 ```
 
 Copy the backups off the machine regularly, for example to a USB drive or cloud storage. If the SD card or disk fails, every order is lost.

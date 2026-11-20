@@ -29,8 +29,12 @@ func env(key, def string) string {
 // so admin sessions end when the app restarts.
 func authConfig() (*web.Auth, error) {
 	a := &web.Auth{PIN: os.Getenv("ADMIN_PIN"), Key: []byte(os.Getenv("SESSION_KEY"))}
-	if a.PIN == "" {
+	switch {
+	case a.PIN == "":
 		log.Print("ADMIN_PIN not set: admin login is disabled")
+	case len(a.PIN) < 6:
+		// Any LAN device can guess; 5 tries per 15 min breaks a 4-digit PIN in days.
+		return nil, errors.New("ADMIN_PIN must be at least 6 characters")
 	}
 	switch {
 	case len(a.Key) == 0:
@@ -80,7 +84,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           mux,
+		Handler:           http.NewCrossOriginProtection().Handler(mux),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,

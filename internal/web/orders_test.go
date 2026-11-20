@@ -63,7 +63,7 @@ func TestCreateOrderValidation(t *testing.T) {
 	}{
 		{"no name", url.Values{"canal": {"whatsapp"}, "nome": {"  "}}},
 		{"bad channel", url.Values{"canal": {"ifood"}, "nome": {"Maria"}}},
-		{"bad consume", url.Values{"canal": {"balcao"}, "consumo": {"x"}, "nome": {"Maria"}}},
+		{"bad consume", url.Values{"canal": {"whatsapp"}, "consumo": {"x"}, "nome": {"Maria"}}},
 		{"bad phone", url.Values{"canal": {"whatsapp"}, "nome": {"Maria"}, "telefone": {"12a4"}}},
 		{"long name", url.Values{"canal": {"whatsapp"}, "nome": {strings.Repeat("a", 61)}}},
 	} {
@@ -231,3 +231,12 @@ func TestMessages(t *testing.T) {
 }
 
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }
+
+func TestBalcaoIsLocal(t *testing.T) {
+	s, h, _ := dbServer(t)
+	// The form always posts a consumo value, entrega by default.
+	do(h, "POST", "/pedidos", url.Values{"canal": {"balcao"}, "consumo": {"entrega"}, "nome": {"João"}}, false)
+	if o, _ := s.DB.GetOrder(context.Background(), 1); o.Consume != db.ConsumeLocal {
+		t.Fatalf("consume = %q", o.Consume)
+	}
+}
