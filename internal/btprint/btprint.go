@@ -12,7 +12,8 @@ const timeout = 10 * time.Second
 // mu serializes jobs: the printer accepts one RFCOMM connection at a time.
 var mu sync.Mutex
 
-// Send connects to the printer at mac (for example "06:31:3D:AE:65:A7"), writes data and disconnects.
+// Send writes data to the printer at mac (for example "06:31:3D:AE:65:A7"), keeping the connection
+// open for the next job.
 func Send(mac string, data []byte) error {
 	mu.Lock()
 	defer mu.Unlock()

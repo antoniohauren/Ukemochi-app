@@ -1,10 +1,12 @@
 package btprint
 
 import (
+	"cmp"
 	"fmt"
 	"net"
 	"os"
 	"syscall"
+	"time"
 	"unsafe"
 )
 
@@ -29,29 +31,80 @@ func send(mac string, data []byte) error {
 		sa.bdaddr[i] = hw[5-i]
 	}
 
-	fd, err := syscall.Socket(syscall.AF_BLUETOOTH, syscall.SOCK_STREAM|syscall.SOCK_CLOEXEC, btprotoRFCOMM)
+	// Reuse the open connection: after closing one, this host's controller answers every new
+	// connect with EALREADY until the adapter is power-cycled. A held connection keeps working.
+	if conn != nil {
+		if err := write(conn, data); err == nil {
+			return nil
+		}
+		conn.Close() // printer was off or dropped the link: reconnect once
+		conn = nil
+	}
+	f, err := dial(sa, time.Now().Add(timeout))
 	if err != nil {
-		return fmt.Errorf("bluetooth socket: %w", err)
+		return fmt.Errorf("connect to printer %s: %w", mac, err)
 	}
-	f := os.NewFile(uintptr(fd), "rfcomm")
-	defer f.Close()
-	// RFCOMM uses the send timeout for connect too.
-	tv := syscall.NsecToTimeval(timeout.Nanoseconds())
-	if err := syscall.SetsockoptTimeval(fd, syscall.SOL_SOCKET, syscall.SO_SNDTIMEO, &tv); err != nil {
-		return fmt.Errorf("bluetooth timeout: %w", err)
-	}
-	for {
-		_, _, errno := syscall.Syscall(syscall.SYS_CONNECT, uintptr(fd), uintptr(unsafe.Pointer(&sa)), unsafe.Sizeof(sa))
-		if errno == syscall.EINTR {
-			continue
-		}
-		if errno != 0 {
-			return fmt.Errorf("connect to printer %s: %w", mac, errno)
-		}
-		break
-	}
-	if _, err := f.Write(data); err != nil {
+	if err := write(f, data); err != nil {
+		f.Close()
 		return fmt.Errorf("write to printer %s: %w", mac, err)
 	}
+	conn = f
 	return nil
+}
+
+// conn is the open printer connection, guarded by mu. shortcut: one printer only; key it by mac to support more.
+var conn *os.File
+
+func write(f *os.File, data []byte) error {
+	if err := f.SetDeadline(time.Now().Add(timeout)); err != nil {
+		return err
+	}
+	_, err := f.Write(data)
+	return err
+}
+
+// dial opens an RFCOMM connection on a new socket. The caller closes the file.
+func dial(sa sockaddrRC, deadline time.Time) (*os.File, error) {
+	fd, err := syscall.Socket(syscall.AF_BLUETOOTH, syscall.SOCK_STREAM|syscall.SOCK_CLOEXEC|syscall.SOCK_NONBLOCK, btprotoRFCOMM)
+	if err != nil {
+		return nil, fmt.Errorf("bluetooth socket: %w", err)
+	}
+	// Non-blocking fd: os.File registers it with the Go poller, so deadlines work and runtime
+	// signals cannot interrupt a blocking connect (retrying that gave EALREADY).
+	f := os.NewFile(uintptr(fd), "rfcomm")
+	if err := connect(f, fd, sa, deadline); err != nil {
+		f.Close()
+		return nil, err
+	}
+	return f, nil
+}
+
+func connect(f *os.File, fd int, sa sockaddrRC, deadline time.Time) error {
+	if err := f.SetDeadline(deadline); err != nil {
+		return err
+	}
+	rc, err := f.SyscallConn()
+	if err != nil {
+		return err
+	}
+	// Connect once: RFCOMM answers a second connect with EBADFD. Then wait for writable and read SO_ERROR.
+	_, _, errno := syscall.Syscall(syscall.SYS_CONNECT, uintptr(fd), uintptr(unsafe.Pointer(&sa)), unsafe.Sizeof(sa))
+	if errno != 0 && errno != syscall.EINPROGRESS {
+		return errno
+	}
+	var connErr error
+	waited := errno == 0
+	err = rc.Write(func(fd uintptr) bool {
+		if !waited {
+			waited = true
+			return false // first call runs before any wait
+		}
+		e, err := syscall.GetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_ERROR)
+		if err == nil && e != 0 {
+			err = syscall.Errno(e)
+		}
+		connErr = err
+		return true
+	})
+	return cmp.Or(err, connErr)
 }
