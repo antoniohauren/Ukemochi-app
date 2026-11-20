@@ -45,12 +45,16 @@ func sized(prefix string, sizes []string, rows ...row) []item {
 		}
 		it := item{name: x.name}
 		for i, size := range sizes {
-			// The ticket keeps only the count: "Meio (4un)" prints as "(4un)".
-			tag := size
-			if m := countTag.FindString(size); m != "" {
+			// The ticket puts a half first and keeps only the count: "1/2 (4un)" prints as "1/2 Ura Salmão (4un)".
+			half, rest := "", size
+			if r, ok := strings.CutPrefix(size, "1/2"); ok {
+				half, rest = "1/2", r
+			}
+			tag := rest
+			if m := countTag.FindString(rest); m != "" {
 				tag = m
 			}
-			label := strings.Join(strings.Fields(prefix+" "+short+" "+tag), " ")
+			label := strings.Join(strings.Fields(half+" "+prefix+" "+short+" "+tag), " ")
 			it.products = append(it.products, product{size: size, printable: label, cents: x.reais[i] * 100})
 		}
 		items = append(items, it)
@@ -73,8 +77,8 @@ func titleCase(s string) string {
 }
 
 var (
-	meio4 = []string{"Meio (4un)", "Todo (8un)"}
-	meio5 = []string{"Meio (5un)", "Todo (10un)"}
+	meio4 = []string{"1/2 (4un)", "(8un)"}
+	meio5 = []string{"1/2 (5un)", "(10un)"}
 )
 
 // sample is the Nordestino Ksa do Sushi menu. Ticket labels stay within 30 runes so lines never wrap.
@@ -96,9 +100,9 @@ var sample = []struct {
 		r("Salmão cheese", 14, 28),
 		r("Salmão grelhado", 14, 27),
 		r("Camarão cheese", 13, 26),
-		r("Atum manga e pepino", 13, 25).short("Atum Manga Pepino"),
+		r("Atum manga e pepino", 13, 25).short("Atum Mng Pepino"),
 		r("Skin cheese", 12, 24),
-		r("Kani salmão cheese", 14, 27).short("Kani Salm Cheese"),
+		r("Kani salmão cheese", 14, 27).short("Kani Salm Chs"),
 		r("Califórnia", 13, 25),
 	)},
 	{"Hots", sized("Hot", meio5,
@@ -149,8 +153,8 @@ var sample = []struct {
 		r("Hot atum grelhado", 31).short("Atum Grelhado"),
 		r("Hot camarão cheese", 32).short("Camarão Chs"),
 	)...)},
-	// shortcut: Meio priced at half of the menu's (Todo) price, fix in admin if different.
-	{"Sushi Dog", sized("Dog", []string{"Meio", "Todo"},
+	// shortcut: 1/2 priced at half of the menu's whole price, fix in admin if different.
+	{"Sushi Dog", sized("Dog", []string{"1/2", "Inteiro"},
 		r("Salmão cheese", 19, 38),
 		r("Salmão maçaricado", 19, 38),
 		r("Dinamite", 19, 38),
@@ -193,6 +197,7 @@ var sample = []struct {
 		{"Água", "", []product{{"Mineral", "", "Água Mineral", 200}, {"Com gás", "", "Água c/ Gás", 400}}},
 		{"Suco", "", []product{{"Copo", "", "Suco Copo", 700}, {"Jarra", "", "Suco Jarra", 1500}}},
 		single("Long neck Heineken", 12, "Heineken Long Neck", ""),
+		single("H2O", 8, "H2O", ""),
 	}},
 }
 
