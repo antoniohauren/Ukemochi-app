@@ -2,6 +2,7 @@ TAILWIND_VERSION := v4.1.13
 TAILWIND := bin/tailwindcss
 HTMX_VERSION := 2.0.4
 HTMX := static/htmx.min.js
+HTMX_SHA256 := e209dda5c8235479f3166defc7750e1dbcd5a5c1808b7792fc2e6733768fb447
 
 UNAME_S := $(shell uname -s)
 UNAME_M := $(shell uname -m)
@@ -21,7 +22,9 @@ $(TAILWIND):
 	chmod +x $@
 
 $(HTMX):
-	curl -fsSL -o $@ https://unpkg.com/htmx.org@$(HTMX_VERSION)/dist/htmx.min.js
+	curl -fsSL -o $@.tmp https://unpkg.com/htmx.org@$(HTMX_VERSION)/dist/htmx.min.js
+	echo "$(HTMX_SHA256)  $@.tmp" | sha256sum -c - || { rm -f $@.tmp; exit 1; }
+	mv $@.tmp $@
 
 gen: $(TAILWIND) $(HTMX)
 	go tool templ generate
