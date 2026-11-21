@@ -109,7 +109,7 @@ templ sheetTitle(sheetID, title string, oob bool) {
 templ MoneyInput(name, label, value string, attrs templ.Attributes) {
 	<label class="block">
 		<span class="mb-1 block text-sm font-medium text-ink-muted">{ label }</span>
-		<div class="flex min-h-12 items-center rounded-xl border border-line bg-card px-4 focus-within:border-brand focus-within:ring-2 focus-within:ring-brand-soft">
+		<div class="flex min-h-12 items-center rounded-xl border border-line bg-card px-4 focus-within:border-ink focus-within:ring-2 focus-within:ring-ink/20">
 			<span class="mr-2 text-ink-muted">R$</span>
 			<input
 				type="text"
@@ -126,15 +126,18 @@ templ MoneyInput(name, label, value string, attrs templ.Attributes) {
 	</label>
 }
 
+// toastRegionClass pins toasts to the bottom, above the fixed action bar, so they never cover the order header.
+const toastRegionClass = "pointer-events-none fixed inset-x-0 bottom-[calc(7rem+env(safe-area-inset-bottom))] z-50 flex justify-center px-4"
+
 // ToastRegion is the empty slot that Toast replaces out of band. Layout renders it once per page.
 templ ToastRegion() {
-	<div id="toast" aria-live="polite" class="pointer-events-none fixed inset-x-0 top-0 z-50 flex justify-center px-4 pt-[max(1rem,env(safe-area-inset-top))]"></div>
+	<div id="toast" aria-live="polite" class={ toastRegionClass }></div>
 }
 
 // Toast swaps into ToastRegion with hx-swap-oob, so any htmx response can carry one.
 // kind is "ok" or "error".
 templ Toast(kind, msg string) {
-	<div id="toast" hx-swap-oob="true" aria-live="polite" class="pointer-events-none fixed inset-x-0 top-0 z-50 flex justify-center px-4 pt-[max(1rem,env(safe-area-inset-top))]">
+	<div id="toast" hx-swap-oob="true" aria-live="polite" class={ toastRegionClass }>
 		<div
 			if kind == "error" {
 				role="alert"
