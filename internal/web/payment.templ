@@ -66,8 +66,12 @@ templ paymentList(o db.Order, removable bool) {
 					</div>
 					if removable {
 						{{ u := paymentURL(o.ID, p.ID) }}
-						<form method="post" action={ u } hx-delete={ u } hx-target="#pagamento" hx-swap="outerHTML">
-							<button type="submit" class={ buttonClass("ghost") + " w-12 px-0" } aria-label={ "Remover pagamento " + paymentLabels[p.Method] + " " + money.Format(p.AmountCents) }>✕</button>
+						{{ ask := "Remover pagamento " + paymentLabels[p.Method] + " de " + money.Format(p.AmountCents) + "?" }}
+						// A trash icon, not ✕, so it is not mistaken for the sheet's close button. htmx asks with hx-confirm.
+						<form method="post" action={ u } hx-delete={ u } hx-target="#pagamento" hx-swap="outerHTML" hx-confirm={ ask } data-confirm={ ask } onsubmit="return !!window.htmx || confirm(this.dataset.confirm)">
+							<button type="submit" class={ buttonClass("secondary") + " w-12 px-0 text-danger" } aria-label={ "Remover pagamento " + paymentLabels[p.Method] + " " + money.Format(p.AmountCents) } title="Remover">
+								@trashIcon()
+							</button>
 						</form>
 					}
 				</li>
@@ -102,6 +106,7 @@ templ PaymentPanel(o db.Order, oob bool) {
 				hx-target="#pagamento"
 				hx-swap="outerHTML"
 				hx-on::after-request="document.getElementById('pagamento-erro')?.scrollIntoView({block: 'nearest'})"
+				onchange="if (event.target.name === 'metodo') document.getElementById('pagamento-erro').textContent = ''"
 				novalidate
 				class="group space-y-3 border-t border-line pt-3"
 			>
@@ -120,7 +125,7 @@ templ PaymentPanel(o db.Order, oob bool) {
 				{{ share := db.EqualShare(o.TotalCents, people) }}
 				if rest > 0 {
 					// Picking how many people split the bill fills the amount with one share (splitScript).
-					<div data-total={ strconv.FormatInt(o.TotalCents, 10) } data-rest={ strconv.FormatInt(rest, 10) }>
+					<div data-total={ strconv.FormatInt(o.TotalCents, 10) } data-rest={ strconv.FormatInt(rest, 10) } data-paid={ strconv.FormatInt(o.PaymentCount, 10) }>
 						<span class="mb-1 block text-sm font-medium text-ink-muted">Dividir entre</span>
 						<div class="flex items-center gap-2">
 							<button type="button" data-split-step="-" class={ buttonClass("secondary") + " w-12 shrink-0 px-0 text-2xl" } aria-label="Menos pessoas">−</button>
@@ -133,7 +138,7 @@ templ PaymentPanel(o db.Order, oob bool) {
 						</div>
 					</div>
 				}
-				@MoneyInput("valor", amountLabel(o, people), plainMoney(min(share, rest)), nil)
+				@MoneyInput("valor", amountLabel(o, people), plainMoney(partAmount(o, people)), nil)
 				// Shown only while Dinheiro is checked.
 				<div class="hidden space-y-2 group-has-[#pagamento-dinheiro:checked]:block">
 					@MoneyInput("recebido", "Valor recebido (opcional)", "", nil)
@@ -161,7 +166,8 @@ templ PaymentPanel(o db.Order, oob bool) {
 }
 
 // splitScript drives the people picker: − and + step it, and any change fills the amount with one share.
-// The share is db.EqualShare (total / people, rounded up), capped at what is left. Integer centavos only.
+// Like partAmount: db.EqualShare (total / people, rounded up), capped at what is left; the last part is all that is left.
+// Integer centavos only.
 templ splitScript() {
 	<script>
 		document.addEventListener("click", (e) => {
@@ -181,7 +187,7 @@ templ splitScript() {
 			const fmt = (c) => String((c - (c % 100)) / 100).replace(/\B(?=(\d{3})+(?!\d))/g, ".") + "," + String(c % 100).padStart(2, "0");
 			box.querySelector("[data-share]").textContent = "R$ " + fmt(share);
 			const v = e.target.form.valor;
-			v.value = fmt(Math.min(share, rest));
+			v.value = fmt(Number(box.dataset.paid) + 1 >= n ? rest : Math.min(share, rest));
 			v.dispatchEvent(new Event("input", { bubbles: true }));
 		});
 	</script>
@@ -206,6 +212,16 @@ func amountLabel(o db.Order, people int64) string {
 		return "Valor a pagar"
 	}
 	return fmt.Sprintf("Valor a pagar · Parte %d de %d", min(o.PaymentCount+1, people), people)
+}
+
+// partAmount fills the amount field: one share capped at what is left, or all that is left on the last part,
+// so a total that changed mid-split (an item added) is still paid in full.
+func partAmount(o db.Order, people int64) int64 {
+	rest := o.RemainingCents()
+	if o.PaymentCount+1 >= people {
+		return rest
+	}
+	return min(db.EqualShare(o.TotalCents, people), rest)
 }
 
 func paymentURL(orderID, paymentID int64) string {

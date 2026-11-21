@@ -227,3 +227,25 @@ func TestPaymentSplitKept(t *testing.T) {
 		}
 	}
 }
+
+// The last part of a split fills all that is left, even when the total grew mid-split.
+func TestPaymentLastPartTakesRest(t *testing.T) {
+	s, h, prod := dbServer(t)
+	id := orderWith(t, s, prod, 8) // R$ 120,00
+	for range 2 {
+		if rec := do(h, "POST", orderURL(id)+"/pagamento", url.Values{"metodo": {"pix"}, "valor": {"40"}, "pessoas": {"3"}}, true); rec.Code != http.StatusOK {
+			t.Fatalf("pay: %d", rec.Code)
+		}
+	}
+	do(h, "POST", orderURL(id)+"/itens", url.Values{"produto": {itoa(prod)}}, false) // R$ 135,00, R$ 55,00 left
+	b := do(h, "GET", orderURL(id), nil, false).Body.String()
+	for _, want := range []string{"Parte 3 de 3", `name="valor" value="55,00"`, `data-paid="2"`} {
+		if !strings.Contains(b, want) {
+			t.Errorf("fresh GET lacks %s", want)
+		}
+	}
+	// Removing a part asks first.
+	if !strings.Contains(b, `hx-confirm="Remover pagamento PIX de R$ 40,00?"`) {
+		t.Errorf("remove payment does not ask")
+	}
+}
