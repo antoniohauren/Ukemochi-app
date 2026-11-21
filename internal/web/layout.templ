@@ -26,6 +26,11 @@ templ Layout(title string) {
 			<script src="/static/htmx.min.js" defer></script>
 			<script>
 				if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js");
+				// A toast arrives out of band; showing it as a popover puts it in the top layer, above an open sheet.
+				document.addEventListener("htmx:load", (e) => {
+					const t = e.target;
+					if (t.id === "toast" && t.showPopover && t.childElementCount) t.showPopover();
+				});
 			</script>
 		</head>
 		<body class="min-h-screen bg-surface text-ink">

@@ -81,7 +81,7 @@ templ StatusChip(status string) {
 // BottomSheet is a native <dialog> pinned to the bottom of the screen. Open it with
 // onclick="document.getElementById(id).showModal()"; tapping the backdrop closes it where closedby is supported.
 templ BottomSheet(id, title string) {
-	<dialog id={ id } closedby="any" class="sheet rounded-t-2xl bg-card p-0 text-ink shadow-xl">
+	<dialog id={ id } closedby="any" aria-labelledby={ id + "-titulo" } class="sheet rounded-t-2xl bg-card p-0 text-ink shadow-xl">
 		<div class="flex items-center justify-between border-b border-line px-4 py-2">
 			@sheetTitle(id, title, false)
 			<button type="button" onclick="this.closest('dialog').close()" class={ buttonClass("ghost") } aria-label="Fechar">✕</button>
@@ -126,27 +126,34 @@ templ MoneyInput(name, label, value string, attrs templ.Attributes) {
 	</label>
 }
 
-// toastRegionClass pins toasts to the bottom, above the fixed action bar, so they never cover the order header.
-const toastRegionClass = "pointer-events-none fixed inset-x-0 bottom-[calc(7rem+env(safe-area-inset-bottom))] z-50 flex justify-center px-4"
+// toastRegionClass pins toasts to the top edge, clear of the action bar and a sheet's buttons (over a sheet it sits on the backdrop).
+// pointer-events-none lets taps through to whatever is under it. The region is a manual popover: Layout's script shows it
+// in the top layer, above an open sheet. The rest undoes the popover UA styles.
+const toastRegionClass = "pointer-events-none fixed inset-x-0 top-[max(0.5rem,env(safe-area-inset-top))] bottom-auto z-50 m-0 flex w-full max-w-none justify-center overflow-visible border-0 bg-transparent px-20 py-0"
 
 // ToastRegion is the empty slot that Toast replaces out of band. Layout renders it once per page.
 templ ToastRegion() {
-	<div id="toast" aria-live="polite" class={ toastRegionClass }></div>
+	<div id="toast" popover="manual" aria-live="polite" class={ toastRegionClass }></div>
 }
 
 // Toast swaps into ToastRegion with hx-swap-oob, so any htmx response can carry one.
 // kind is "ok" or "error".
 templ Toast(kind, msg string) {
-	<div id="toast" hx-swap-oob="true" aria-live="polite" class={ toastRegionClass }>
+	<div id="toast" hx-swap-oob="true" popover="manual" aria-live="polite" class={ toastRegionClass }>
 		<div
 			if kind == "error" {
 				role="alert"
 			}
-			class={ "animate-toast rounded-xl px-4 py-3 text-base font-medium text-white shadow-lg", templ.KV("bg-ok", kind != "error"), templ.KV("bg-danger", kind == "error") }
+			class={ "animate-toast rounded-xl px-4 py-3 text-center text-base font-medium text-white shadow-lg", templ.KV("bg-ok", kind != "error"), templ.KV("bg-danger", kind == "error") }
 		>
 			{ msg }
 		</div>
 	</div>
+}
+
+// trashIcon is the remove icon on buttons that delete a line.
+templ trashIcon() {
+	<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-5 shrink-0" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M6 6l1 14h10l1-14"></path></svg>
 }
 
 // DevUI shows every component, for checking the kit on a phone at /dev/ui.

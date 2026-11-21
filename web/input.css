@@ -21,9 +21,9 @@
 
   --animate-toast: toast 3.5s ease-in-out forwards;
   @keyframes toast {
-    0% { opacity: 0; transform: translateY(1rem); }
+    0% { opacity: 0; transform: translateY(-1rem); }
     8%, 85% { opacity: 1; transform: none; }
-    100% { opacity: 0; transform: translateY(1rem); visibility: hidden; }
+    100% { opacity: 0; transform: translateY(-1rem); visibility: hidden; }
   }
 }
 
