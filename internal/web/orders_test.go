@@ -273,6 +273,34 @@ func TestBalcaoIsLocal(t *testing.T) {
 	}
 }
 
+func TestNewOrderBalcaoHidesConsume(t *testing.T) {
+	_, h, _ := dbServer(t)
+	if body := do(h, "GET", "/pedidos/novo", nil, false).Body.String(); !strings.Contains(body, `id="canal-balcao"`) ||
+		!strings.Contains(body, "group-has-[#canal-balcao:checked]:hidden") {
+		t.Errorf("balcão does not hide consumo: %s", body)
+	}
+}
+
+// An item change in cozinha or pronto sends the order back to aberto, so every item form asks first.
+func TestItemChangeAfterKitchenAsks(t *testing.T) {
+	s, h, prod := dbServer(t)
+	id := orderWith(t, s, prod, 1)
+	const ask = "volta para Aberto"
+	if body := do(h, "GET", orderURL(id), nil, false).Body.String(); strings.Contains(body, ask) {
+		t.Errorf("aberto order asks")
+	}
+	do(h, "POST", orderURL(id)+"/status", url.Values{"para": {"cozinha"}}, false)
+	for _, target := range []string{orderURL(id), orderURL(id) + "/adicionar?produto=" + itoa(prod)} {
+		if body := do(h, "GET", target, nil, true).Body.String(); !strings.Contains(body, `hx-confirm="O pedido volta para Aberto`) {
+			t.Errorf("%s does not ask: %s", target, body)
+		}
+	}
+	// The remove button at qty 1 names both the item and the reopen.
+	if body := do(h, "GET", orderURL(id), nil, false).Body.String(); !strings.Contains(body, `hx-confirm="Remover Hot roll? O pedido volta para Aberto`) {
+		t.Errorf("remove does not ask about reopen: %s", body)
+	}
+}
+
 func TestAddItemSteps(t *testing.T) {
 	s, h, prod := dbServer(t)
 	do(h, "POST", "/pedidos", newOrderForm("Maria"), false)
@@ -324,8 +352,10 @@ func TestAddItemSteps(t *testing.T) {
 		}
 	}
 	rec := do(h, "POST", "/pedidos/1/itens", url.Values{"produto": {itoa(prod)}, "qty": {"3"}}, true)
-	if rec.Code != http.StatusOK || rec.Header().Get("HX-Trigger") != "item-added-keep" {
-		t.Fatalf("add qty: %d %v", rec.Code, rec.Header())
+	// htmx gets the add sheet back on the product's category, renamed, out of band; the sheet stays open.
+	if body := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(body, `id="add-step" hx-swap-oob="innerHTML"`) ||
+		!strings.Contains(body, "?item=1") || !strings.Contains(body, `text-lg font-semibold">Sushi<`) {
+		t.Fatalf("add qty: %d %s", rec.Code, body)
 	}
 	o, _ := s.DB.GetOrder(ctx, 1)
 	if len(o.Items) != 1 || o.Items[0].Qty != 3 || o.TotalCents != 4500 {
@@ -438,6 +468,10 @@ func TestOrderListPaymentChipAndRefresh(t *testing.T) {
 	s, h, prod := dbServer(t)
 	ctx := context.Background()
 	id := orderWith(t, s, prod, 1)
+	// The chip shows from the start, while the order is still aberto.
+	if b := do(h, "GET", "/", nil, false).Body.String(); !strings.Contains(b, "Não pago") {
+		t.Error("aberto unpaid order lacks Não pago")
+	}
 	for _, st := range []string{db.StatusKitchen, db.StatusReady} {
 		if err := s.DB.SetStatus(ctx, id, st); err != nil {
 			t.Fatal(err)
@@ -452,6 +486,13 @@ func TestOrderListPaymentChipAndRefresh(t *testing.T) {
 	}
 	if b := do(h, "GET", "/", nil, false).Body.String(); !strings.Contains(b, "Falta R$ 10,00") {
 		t.Error("part paid should show what is left")
+	}
+	// Paid in full: a green "Pago" chip.
+	if err := s.DB.AddPayment(ctx, id, "pix", 1000, 0, 1); err != nil {
+		t.Fatal(err)
+	}
+	if b := do(h, "GET", "/", nil, false).Body.String(); !regexp.MustCompile(`bg-green-100[^>]*>Pago<`).MatchString(b) || strings.Contains(b, "Não pago") {
+		t.Errorf("paid should show a green Pago: %s", b)
 	}
 }
 

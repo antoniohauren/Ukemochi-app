@@ -34,7 +34,7 @@ templ OrderListPage(orders []db.Order) {
 								@Card() {
 									<div class="flex items-start justify-between gap-3">
 										<div class="min-w-0">
-											<p class="truncate font-semibold">#{ strconv.FormatInt(o.ID, 10) } { o.ClientLabel() }</p>
+											<p class="line-clamp-2 break-words font-semibold">#{ strconv.FormatInt(o.ID, 10) } { o.ClientLabel() }</p>
 											<p class="text-sm text-ink-muted">
 												{ channelLabels[o.Channel] } · { consumeLabels[o.Consume] } · { localTime(o.CreatedAt, "15:04") }
 											</p>
@@ -43,9 +43,8 @@ templ OrderListPage(orders []db.Order) {
 									</div>
 									<div class="mt-2 flex items-center justify-between gap-3">
 										<p class="text-lg font-bold tabular-nums">{ money.Format(o.TotalCents) }</p>
-										if l := unpaidLabel(o); l != "" {
-											<span class={ "inline-flex items-center rounded-full px-2 py-0.5 text-sm font-medium tabular-nums ring-1 ring-inset", statusColors[db.StatusCancelled] }>{ l }</span>
-										}
+										{{ l, paid := payLabel(o) }}
+										<span class={ "inline-flex items-center rounded-full px-2 py-0.5 text-sm font-medium tabular-nums ring-1 ring-inset", statusColors[payChipStatus(paid)] }>{ l }</span>
 									</div>
 								}
 							</a>
@@ -62,15 +61,24 @@ templ OrderListPage(orders []db.Order) {
 	}
 }
 
-// unpaidLabel is the home card's payment chip: empty while the order is aberto or paid.
-func unpaidLabel(o db.Order) string {
+// payLabel is the home card's payment chip, in every status: "Não pago" (red) until paid, then "Pago" (paid true, green).
+// A part payment shows what is left.
+func payLabel(o db.Order) (label string, paid bool) {
 	switch {
-	case o.Status == db.StatusOpen || o.Paid():
-		return ""
+	case o.Paid():
+		return "Pago", true
 	case o.PaymentCount > 0 && o.RemainingCents() > 0:
-		return "Falta " + money.Format(o.RemainingCents())
+		return "Falta " + money.Format(o.RemainingCents()), false
 	}
-	return "Não pago"
+	return "Não pago", false
+}
+
+// payChipStatus borrows a status chip's colors: green (pronto) when paid, red (cancelado) when not.
+func payChipStatus(paid bool) string {
+	if paid {
+		return db.StatusReady
+	}
+	return db.StatusCancelled
 }
 
 func optionClass() string {
@@ -111,30 +119,33 @@ templ NewOrderPage(o db.NewOrder, errMsg, errField string) {
 							WhatsApp
 						</label>
 						<label class={ optionClass() }>
-							<input type="radio" name="canal" value="balcao" class="sr-only" checked?={ o.Channel == "balcao" }/>
+							<input type="radio" name="canal" value="balcao" id="canal-balcao" class="sr-only" checked?={ o.Channel == "balcao" }/>
 							Balcão
 						</label>
 					</div>
 				</fieldset>
-				<fieldset>
-					<legend class="mb-1 text-sm font-medium text-ink-muted">Consumo</legend>
-					<div class="grid grid-cols-2 gap-2">
-						<label class={ optionClass() }>
-							<input type="radio" name="consumo" value="entrega" id="consumo-entrega" class="sr-only" checked?={ o.Consume != db.ConsumeLocal }/>
-							Entrega
-						</label>
-						<label class={ optionClass() }>
-							<input type="radio" name="consumo" value="local" class="sr-only" checked?={ o.Consume == db.ConsumeLocal }/>
-							No local
-						</label>
-					</div>
-				</fieldset>
-				// Shown only while Entrega is checked; the server requires it then.
-				<label class="hidden group-has-[#consumo-entrega:checked]:block">
-					<span class="mb-1 block text-sm font-medium text-ink-muted">Endereço de entrega</span>
-					<input type="text" name="endereco" value={ o.Address } maxlength="120" autocomplete="off" class={ fieldClass() } { invalid(errField, "endereco")... }/>
-					@fieldError(errField, "endereco", errMsg)
-				</label>
+				// Balcão is always eaten in (parseNewOrder), so the choice and the address hide.
+				<div class="space-y-5 group-has-[#canal-balcao:checked]:hidden">
+					<fieldset>
+						<legend class="mb-1 text-sm font-medium text-ink-muted">Consumo</legend>
+						<div class="grid grid-cols-2 gap-2">
+							<label class={ optionClass() }>
+								<input type="radio" name="consumo" value="entrega" id="consumo-entrega" class="sr-only" checked?={ o.Consume != db.ConsumeLocal }/>
+								Entrega
+							</label>
+							<label class={ optionClass() }>
+								<input type="radio" name="consumo" value="local" class="sr-only" checked?={ o.Consume == db.ConsumeLocal }/>
+								No local
+							</label>
+						</div>
+					</fieldset>
+					// Shown only while Entrega is checked; the server requires it then.
+					<label class="hidden group-has-[#consumo-entrega:checked]:block">
+						<span class="mb-1 block text-sm font-medium text-ink-muted">Endereço de entrega</span>
+						<input type="text" name="endereco" value={ o.Address } maxlength="120" autocomplete="off" class={ fieldClass() } { invalid(errField, "endereco")... }/>
+						@fieldError(errField, "endereco", errMsg)
+					</label>
+				</div>
 				@customerFields(o.ClientName, o.PhoneLast4, o.Notes, errField, errMsg)
 				if errMsg != "" && errField == "" {
 					<p role="alert" class="font-medium text-danger">{ errMsg }</p>
@@ -175,8 +186,8 @@ templ OrderEditorPage(o db.Order, menu []db.Category) {
 			</div>
 			if canEditItems(o) {
 				@BottomSheet("add-sheet", "Adicionar item") {
-					// After an add (HX-Trigger item-added-keep), the sheet goes back to the categories and stays open.
-					<div id="add-step" hx-get={ addItemURL(o.ID, "", 0) } hx-trigger="item-added-keep">
+					// After an add, ItemAdded swaps the product's category in here and the sheet stays open.
+					<div id="add-step">
 						@AddCategoryStep(o.ID, menu)
 					</div>
 				}
@@ -214,7 +225,7 @@ templ orderHeader(o db.Order, oob bool) {
 		<div class="flex items-center gap-2">
 			@HomeLink()
 			<div class="min-w-0 flex-1">
-				<h1 class="truncate text-lg font-bold">#{ strconv.FormatInt(o.ID, 10) } { o.ClientLabel() }</h1>
+				<h1 class="line-clamp-2 break-words text-lg font-bold">#{ strconv.FormatInt(o.ID, 10) } { o.ClientLabel() }</h1>
 				<p class="text-sm text-ink-muted">
 					{ channelLabels[o.Channel] } · { consumeLabels[o.Consume] }
 				</p>
@@ -344,29 +355,51 @@ templ ItemsUpdate(o db.Order, toast string) {
 	}
 }
 
+// ItemAdded answers an htmx add: the item update, and the add sheet back on the product's category
+// (the categories if it is gone), out of band.
+templ ItemAdded(o db.Order, menu []db.Category, product int64) {
+	@ItemsUpdate(o, "Item adicionado")
+	if c, ok := productCategory(menu, product); ok {
+		<div id="add-step" hx-swap-oob="innerHTML">
+			@AddItemStep(o.ID, c)
+		</div>
+		@sheetTitle("add-sheet", c.Name, true)
+	} else {
+		<div id="add-step" hx-swap-oob="innerHTML">
+			@AddCategoryStep(o.ID, menu)
+		</div>
+		@sheetTitle("add-sheet", "Adicionar item", true)
+	}
+}
+
 // orderItems shows the items and total of an order, with quantity buttons while it is open.
 templ orderItems(o db.Order) {
 	{{ editable := canEditItems(o) }}
-	<div class="space-y-4">
+	{{ reopen := reopenNote(o) }}
+	// hx-confirm is inherited by every item form below, so a change in cozinha or pronto asks first.
+	<div
+		class="space-y-4"
+		if reopen != "" {
+			hx-confirm={ reopen + " Continuar?" }
+		}
+	>
 		<p id="sheet-error" role="alert" class="empty:hidden font-medium text-danger"></p>
 		if len(o.Items) == 0 {
 			<p class="text-ink-muted">Nenhum item ainda.</p>
 		}
 		<ul class="divide-y divide-line">
 			for _, it := range o.Items {
-				<li class="flex items-center gap-3 py-2">
+				<li class="group/item flex flex-wrap items-center gap-x-3 py-2">
 					{{ itemURL := fmt.Sprintf("/pedidos/%d/itens/%d", o.ID, it.ID) }}
 					<div class="min-w-0 flex-1">
 						if editable {
-							// Tapping the name opens the line's note.
+							// Tapping the name opens the line's note, on its own full-width row (the form after the quantity buttons).
 							<details>
-								<summary class="cursor-pointer list-none font-medium leading-tight [&::-webkit-details-marker]:hidden">{ it.PrintableName }</summary>
-								<form method="post" action={ itemURL } hx-patch={ itemURL } hx-target="#pedido-itens" hx-swap="innerHTML" class="my-2 flex gap-2">
-									<input type="text" name="nota" value={ it.Note } maxlength={ strconv.Itoa(db.MaxItemNote) } placeholder="Obs. do item" aria-label={ "Observação de " + it.NameSnapshot } autocomplete="off" class={ fieldClass() + " min-w-0 text-base" }/>
-									@Button("secondary", templ.Attributes{"type": "submit"}) {
-										Salvar
-									}
-								</form>
+								<summary class="flex min-h-11 cursor-pointer list-none items-center gap-2 font-medium leading-tight [&::-webkit-details-marker]:hidden">
+									<span>{ it.PrintableName }</span>
+									<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-4 shrink-0 text-ink-muted" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>
+									<span class="sr-only">(observação)</span>
+								</summary>
 							</details>
 						} else {
 							<p class="font-medium leading-tight">{ strconv.FormatInt(it.Qty, 10) }x { it.PrintableName }</p>
@@ -380,10 +413,10 @@ templ orderItems(o db.Order) {
 						<div class="flex items-center gap-1">
 							if it.Qty == 1 {
 								// At 1, minus would remove the line, so it asks first. htmx ignores onsubmit's result and asks with hx-confirm.
-								<form method="post" action={ itemURL } hx-delete={ itemURL } hx-target="#pedido-itens" hx-swap="innerHTML" hx-confirm={ "Remover " + it.NameSnapshot + "?" } data-confirm={ "Remover " + it.NameSnapshot + "?" } onsubmit="return !!window.htmx || confirm(this.dataset.confirm)">
+								<form method="post" action={ itemURL } hx-delete={ itemURL } hx-target="#pedido-itens" hx-swap="innerHTML" hx-confirm={ strings.TrimSpace("Remover " + it.NameSnapshot + "? " + reopen) } data-confirm={ "Remover " + it.NameSnapshot + "?" } onsubmit="return !!window.htmx || confirm(this.dataset.confirm)">
 									<input type="hidden" name="qty" value="0"/>
 									<button type="submit" class={ buttonClass("secondary") + " w-12 px-0 text-danger" } aria-label={ "Remover " + it.NameSnapshot } title="Remover">
-										<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-5" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M6 6l1 14h10l1-14"></path></svg>
+										@trashIcon()
 									</button>
 								</form>
 							}
@@ -395,6 +428,13 @@ templ orderItems(o db.Order) {
 								<button type="submit" name="qty" value={ strconv.FormatInt(it.Qty+1, 10) } disabled?={ it.Qty >= db.MaxQty } class={ buttonClass("secondary") + " w-12 px-0" } aria-label={ "Aumentar " + it.NameSnapshot }>+</button>
 							</form>
 						</div>
+						// Shown while the name's <details> is open.
+						<form method="post" action={ itemURL } hx-patch={ itemURL } hx-target="#pedido-itens" hx-swap="innerHTML" class="mt-2 hidden w-full gap-2 group-has-[details[open]]/item:flex">
+							<input type="text" name="nota" value={ it.Note } maxlength={ strconv.Itoa(db.MaxItemNote) } placeholder="Obs. do item, ex.: sem cebolinha" aria-label={ "Observação de " + it.NameSnapshot } autocomplete="off" class={ fieldClass() + " min-w-0 flex-1 text-base" }/>
+							@Button("secondary", templ.Attributes{"type": "submit"}) {
+								Salvar
+							}
+						</form>
 					}
 				</li>
 			}
@@ -622,10 +662,20 @@ templ AddVariantStep(orderID int64, c db.Category, it db.Item) {
 }
 
 // AddQtyStep is step 4: pick the quantity and add.
-templ AddQtyStep(orderID int64, c db.Category, it db.Item, p db.Product) {
+// reopen is the order's reopenNote: the add asks first when it would send the order back to aberto.
+templ AddQtyStep(orderID int64, c db.Category, it db.Item, p db.Product, reopen string) {
 	<div class="space-y-4">
 		<p class="tabular-nums text-ink-muted">{ money.Format(p.PriceCents) } cada</p>
-		<form method="post" action={ orderURL(orderID) + "/itens" } hx-post={ orderURL(orderID) + "/itens" } hx-target="#pedido-itens" hx-swap="innerHTML">
+		<form
+			method="post"
+			action={ orderURL(orderID) + "/itens" }
+			hx-post={ orderURL(orderID) + "/itens" }
+			hx-target="#pedido-itens"
+			hx-swap="innerHTML"
+			if reopen != "" {
+				hx-confirm={ reopen + " Continuar?" }
+			}
+		>
 			<input type="hidden" name="produto" value={ strconv.FormatInt(p.ID, 10) }/>
 			<div class="flex items-center gap-2">
 				<button type="button" onclick="this.form.qty.stepDown()" class={ buttonClass("secondary") + " w-12 shrink-0 px-0 text-2xl" } aria-label="Menos">−</button>

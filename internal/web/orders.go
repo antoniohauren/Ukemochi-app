@@ -175,10 +175,22 @@ func (s *Server) addItem(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, err)
 		return
 	}
-	if isHX(r) {
-		w.Header().Set("HX-Trigger", "item-added-keep") // the add sheet goes back to the categories and stays open
+	if !isHX(r) {
+		redirect(w, r, orderURL(id))
+		return
 	}
-	s.itemsChanged(w, r, id, "Item adicionado")
+	o, err := s.DB.GetOrder(r.Context(), id)
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	menu, err := s.DB.Menu(r.Context(), true)
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	// The add sheet stays open on the product's category, so the next item from it is one tap away.
+	render(w, r, http.StatusOK, ItemAdded(o, menu, product))
 }
 
 // addItemStep shows one step of adding an item: categories, then the category's
@@ -197,7 +209,7 @@ func (s *Server) addItemStep(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, err)
 		return
 	}
-	step, title, err := pickStep(r, o.ID, menu)
+	step, title, err := pickStep(r, o, menu)
 	if err != nil {
 		fail(w, r, err)
 		return
@@ -211,14 +223,15 @@ func (s *Server) addItemStep(w http.ResponseWriter, r *http.Request) {
 }
 
 // pickStep returns the add-item step for the query and the title naming the current pick.
-func pickStep(r *http.Request, orderID int64, menu []db.Category) (templ.Component, string, error) {
+func pickStep(r *http.Request, o db.Order, menu []db.Category) (templ.Component, string, error) {
+	orderID := o.ID
 	q := r.URL.Query()
 	if v := q.Get("produto"); v != "" {
 		for _, c := range menu {
 			for _, it := range c.Items {
 				for _, p := range it.Products {
 					if strconv.FormatInt(p.ID, 10) == v {
-						return AddQtyStep(orderID, c, it, p), db.DisplayName(it.Name, p.Variant, p.Size), nil
+						return AddQtyStep(orderID, c, it, p, reopenNote(o)), db.DisplayName(it.Name, p.Variant, p.Size), nil
 					}
 				}
 			}
@@ -517,6 +530,28 @@ var statusActions = []struct{ To, Label, Variant string }{
 	{db.StatusClosed, "Fechar", "primary"},
 	{db.StatusOpen, "Reabrir", "secondary"},
 	{db.StatusCancelled, "Cancelar pedido", "danger"},
+}
+
+// reopenNote is what an item change says before it sends a cozinha or pronto order back to aberto; "" otherwise.
+func reopenNote(o db.Order) string {
+	if o.Status == db.StatusKitchen || o.Status == db.StatusReady {
+		return "O pedido volta para Aberto e precisa ser enviado à cozinha de novo."
+	}
+	return ""
+}
+
+// productCategory finds the category holding product.
+func productCategory(menu []db.Category, product int64) (db.Category, bool) {
+	for _, c := range menu {
+		for _, it := range c.Items {
+			for _, p := range it.Products {
+				if p.ID == product {
+					return c, true
+				}
+			}
+		}
+	}
+	return db.Category{}, false
 }
 
 // canEditItems reports whether o's items may change (db.AddItem); a change in cozinha or pronto moves it to aberto.
