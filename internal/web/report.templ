@@ -14,7 +14,7 @@ templ ReportPage(day time.Time, rep db.Report, summary string) {
 			<header class="flex items-center gap-2">
 				<a href="/" class={ buttonClass("ghost") } aria-label="Voltar">←</a>
 				<h1 class="flex-1 text-xl font-bold">Relatório</h1>
-				<a href="/admin/cardapio" class="text-sm font-medium text-ink-muted underline">Cardápio</a>
+				<a href="/admin/cardapio" class="inline-flex min-h-12 items-center px-3 text-sm font-medium text-ink-muted underline">Cardápio</a>
 			</header>
 			<form method="get" action="/admin/relatorio" class="flex items-center gap-2">
 				<a href={ templ.SafeURL("/admin/relatorio?dia=" + day.AddDate(0, 0, -1).Format(dayLayout)) } class={ buttonClass("secondary") + " w-12 px-0" } aria-label="Dia anterior">‹</a>
@@ -29,7 +29,7 @@ templ ReportPage(day time.Time, rep db.Report, summary string) {
 			@Card() {
 				<p class="text-sm text-ink-muted">{ day.Format("02/01/2006") } · pedidos fechados</p>
 				<p class="mt-1 text-3xl font-bold tabular-nums">{ money.Format(rep.TotalCents) }</p>
-				<p class="text-ink-muted">{ strconv.FormatInt(rep.Orders, 10) } pedidos</p>
+				<p class="text-ink-muted">{ plural(rep.Orders, "pedido", "pedidos") }</p>
 			}
 			if rep.Orders == 0 {
 				<p class="py-4 text-center text-ink-muted">Nenhum pedido fechado neste dia.</p>
@@ -71,4 +71,12 @@ templ reportTable(title string, rows []db.ReportRow, labels map[string]string) {
 			}
 		</ul>
 	}
+}
+
+// plural writes n with the singular or plural noun: "1 pedido", "3 pedidos".
+func plural(n int64, one, many string) string {
+	if n == 1 {
+		return "1 " + one
+	}
+	return strconv.FormatInt(n, 10) + " " + many
 }

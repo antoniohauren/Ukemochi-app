@@ -16,7 +16,7 @@ templ LoginPage(next, errMsg string) {
 							autocomplete="current-password"
 							required
 							autofocus
-							class="min-h-12 w-full rounded-xl border border-line bg-card px-4 text-center text-2xl tracking-widest outline-none focus:border-brand focus:ring-2 focus:ring-brand-soft"
+							class="min-h-12 w-full rounded-xl border border-line bg-card px-4 text-center text-2xl tracking-widest outline-none focus:border-ink focus:ring-2 focus:ring-ink/20"
 						/>
 					</label>
 					if errMsg != "" {
@@ -29,6 +29,7 @@ templ LoginPage(next, errMsg string) {
 					</div>
 				</form>
 			}
+			<a href="/" class="mt-4 inline-flex min-h-12 items-center justify-center font-medium text-ink-muted underline">← Pedidos</a>
 		</main>
 	}
 }

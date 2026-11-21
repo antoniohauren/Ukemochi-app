@@ -53,7 +53,7 @@ func TestReportPage(t *testing.T) {
 	}
 
 	id := orderWith(t, s, prod, 3)
-	if err := s.DB.AddPayment(ctx, id, "pix", 4500, 0); err != nil {
+	if err := s.DB.AddPayment(ctx, id, "pix", 4500, 0, 1); err != nil {
 		t.Fatal(err)
 	}
 	for _, st := range []string{db.StatusKitchen, db.StatusReady, db.StatusClosed} {
@@ -67,10 +67,20 @@ func TestReportPage(t *testing.T) {
 	if rec.Code != http.StatusOK || !strings.Contains(body, "R$ 45,00") || !strings.Contains(body, "3x Hot roll") {
 		t.Fatalf("code %d, body %s", rec.Code, body)
 	}
+	if !strings.Contains(body, ">1 pedido<") {
+		t.Error("one order should read \"1 pedido\"")
+	}
 	if rec := adminDo(h, s, "GET", "/admin/relatorio?dia=2000-01-01", nil); !strings.Contains(rec.Body.String(), "Nenhum pedido fechado") {
 		t.Error("old day should be empty")
 	}
 	if rec := adminDo(h, s, "GET", "/admin/relatorio?dia=ontem", nil); rec.Code != http.StatusUnprocessableEntity {
 		t.Errorf("bad day: code %d", rec.Code)
+	}
+}
+
+func TestLoginPageLinksHome(t *testing.T) {
+	_, h, _ := dbServer(t)
+	if b := do(h, "GET", "/admin/login", nil, false).Body.String(); !strings.Contains(b, `href="/"`) || !strings.Contains(b, "← Pedidos") {
+		t.Errorf("login page lacks the link home: %s", b)
 	}
 }

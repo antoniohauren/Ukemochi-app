@@ -33,7 +33,7 @@ templ MenuPage(menu []db.Category, errMsg string) {
 			<header class="flex items-center gap-2">
 				<a href="/" class={ buttonClass("ghost") } aria-label="Pedidos">←</a>
 				<h1 class="flex-1 text-xl font-bold">Cardápio</h1>
-				<a href="/admin/relatorio" class="text-sm font-medium text-ink-muted underline">Relatório</a>
+				<a href="/admin/relatorio" class="inline-flex min-h-12 items-center px-3 text-sm font-medium text-ink-muted underline">Relatório</a>
 			</header>
 			if errMsg != "" {
 				<p role="alert" class="rounded-xl bg-brand-soft p-3 font-medium text-danger">{ errMsg }</p>
