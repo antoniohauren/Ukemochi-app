@@ -22,7 +22,7 @@ func orderMessage(o db.Order, kind string) (string, bool) {
 		var b strings.Builder
 		fmt.Fprintf(&b, "Olá, %s! Confirmando seu pedido:\n\n", o.ClientName)
 		for _, it := range o.Items {
-			fmt.Fprintf(&b, "%dx %s — %s\n", it.Qty, it.NameSnapshot, money.Format(it.Qty*it.UnitPriceCents))
+			fmt.Fprintf(&b, "%dx %s — %s\n", it.Qty, it.PrintableName, money.Format(it.Qty*it.UnitPriceCents))
 			if it.Note != "" {
 				fmt.Fprintf(&b, "   _%s_\n", it.Note)
 			}

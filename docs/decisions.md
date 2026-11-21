@@ -36,7 +36,7 @@ Order screens are open on the LAN. Reports and menu editing need a PIN.
 ## 006: Snapshot price and name in `order_items`
 
 - **Why:** menu edits must not change past orders or reports.
-- **Exception:** the kitchen ticket prints the current `products.printable_name`, so a reprint shows a renamed product's new short name. Prices and totals still come from the snapshot.
+- **Exception:** the ticket and the WhatsApp confirmation use the current `products.printable_name`, so a reprint shows a renamed product's new short name. Prices and totals still come from the snapshot.
 
 ## 007: Minimal dependencies
 

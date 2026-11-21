@@ -122,7 +122,7 @@ func TestOrderFlow(t *testing.T) {
 	}
 
 	msg := do(h, "GET", "/pedidos/1/mensagem/confirmacao", nil, false).Body.String()
-	if want := "3x Hot roll — R$ 45,00\n\n*Total: R$ 45,00*"; !strings.Contains(msg, want) {
+	if want := "3x HOT ROLL — R$ 45,00\n\n*Total: R$ 45,00*"; !strings.Contains(msg, want) {
 		t.Fatalf("message %q lacks %q", msg, want)
 	}
 	if rec := do(h, "GET", "/pedidos/1/mensagem/outra", nil, false); rec.Code != http.StatusNotFound {
@@ -241,9 +241,9 @@ func TestBadIDs(t *testing.T) {
 
 func TestMessages(t *testing.T) {
 	o := db.Order{ClientName: "Maria", Channel: "whatsapp", Consume: db.ConsumeLocal, Status: db.StatusReady, TotalCents: 3600,
-		Items: []db.OrderItem{{Qty: 2, UnitPriceCents: 1500, NameSnapshot: "Hot roll"}, {Qty: 1, UnitPriceCents: 600, NameSnapshot: "Coca-Cola Zero Lata"}}}
+		Items: []db.OrderItem{{Qty: 2, UnitPriceCents: 1500, NameSnapshot: "Hot roll", PrintableName: "HOT ROLL"}, {Qty: 1, UnitPriceCents: 600, NameSnapshot: "Coca-Cola Zero Lata", PrintableName: "COCA ZERO LT"}}}
 	got, _ := orderMessage(o, msgConfirm)
-	want := "Olá, Maria! Confirmando seu pedido:\n\n2x Hot roll — R$ 30,00\n1x Coca-Cola Zero Lata — R$ 6,00\n\n*Total: R$ 36,00*"
+	want := "Olá, Maria! Confirmando seu pedido:\n\n2x HOT ROLL — R$ 30,00\n1x COCA ZERO LT — R$ 6,00\n\n*Total: R$ 36,00*"
 	if got != want {
 		t.Errorf("confirm:\n%s\nwant:\n%s", got, want)
 	}

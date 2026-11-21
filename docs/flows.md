@@ -78,8 +78,8 @@ Confirmation:
 ```
 Olá, Maria! Confirmando seu pedido:
 
-2x Hot roll — R$ 30,00
-1x Coca-Cola Zero Lata — R$ 6,00
+2x HOT ROLL — R$ 30,00
+1x COCA ZERO LT — R$ 6,00
 
 *Total: R$ 36,00*
 ```

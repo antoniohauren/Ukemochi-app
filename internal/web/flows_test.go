@@ -44,7 +44,7 @@ func TestFlows(t *testing.T) {
 	o1 := create(url.Values{"canal": {"whatsapp"}, "consumo": {"entrega"}, "endereco": {"Rua A, 1"}, "nome": {"Maria"}, "telefone": {"1234"}})
 	addItem(o1)
 	addItem(o1)
-	if msg := step("GET", o1+"/mensagem/confirmacao", nil, http.StatusOK); !strings.Contains(msg, "Olá, Maria!") || !strings.Contains(msg, "2x Hot roll — R$ 30,00") {
+	if msg := step("GET", o1+"/mensagem/confirmacao", nil, http.StatusOK); !strings.Contains(msg, "Olá, Maria!") || !strings.Contains(msg, "2x HOT ROLL — R$ 30,00") {
 		t.Fatalf("confirmation: %q", msg)
 	}
 	pay(o1, "pix")
