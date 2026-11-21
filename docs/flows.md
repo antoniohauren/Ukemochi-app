@@ -16,6 +16,7 @@ aberto -> cozinha -> pronto -> saiu -> fechado
      +---------+----------+---------+-> cancelado
 
 fechado, cancelado -> aberto   (reopen)
+cozinha, pronto    -> aberto   (an item is added, removed or changed)
 ```
 
 | Status      | Meaning                                  |
@@ -34,7 +35,7 @@ fechado, cancelado -> aberto   (reopen)
 - A `fechado` or `cancelado` order can be reopened at any time. It goes back to `aberto`, keeps its payment and leaves the daily report until it is closed again.
 - An order can't be closed until its parts add up to the total exactly (none missing, none over after items were removed).
 - `saiu` exists only when `consume = entrega`.
-- Items can be edited only while the status is `aberto`. Reprinting the ticket is allowed at any status.
+- Items can be edited while the status is `aberto`, `cozinha` or `pronto`. Any item change (add, remove, quantity, note) in `cozinha` or `pronto` moves the order back to `aberto`; tap **Enviar à cozinha** again to print the full updated ticket. Reprinting the ticket is allowed at any status.
 
 ## Flow 1: WhatsApp delivery
 

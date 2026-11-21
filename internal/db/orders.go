@@ -14,7 +14,7 @@ var (
 	ErrPaidMismatch  = errors.New("pagamentos não batem com o total")
 	ErrOverpaid      = errors.New("valor maior que o que falta pagar")
 	ErrCashShort     = errors.New("dinheiro recebido não cobre o valor")
-	ErrNotEditable   = errors.New("itens só podem ser alterados com o pedido aberto")
+	ErrNotEditable   = errors.New("itens não podem ser alterados depois que o pedido saiu ou foi fechado")
 	ErrInvalid       = errors.New("valor inválido")
 	ErrEmptyOrder    = errors.New("pedido sem itens não pode ir para a cozinha")
 )
@@ -331,6 +331,7 @@ func (d *DB) SetConsume(ctx context.Context, id int64, consume, address string) 
 	})
 }
 
+// requireOpen allows item edits while the order is aberto, cozinha or pronto, moving it to aberto.
 func requireOpen(ctx context.Context, tx *sql.Tx, orderID int64) error {
 	var status string
 	err := tx.QueryRowContext(ctx, `SELECT status FROM orders WHERE id = ?`, orderID).Scan(&status)
@@ -340,10 +341,15 @@ func requireOpen(ctx context.Context, tx *sql.Tx, orderID int64) error {
 	if err != nil {
 		return err
 	}
-	if status != StatusOpen {
-		return ErrNotEditable
+	switch status {
+	case StatusOpen:
+		return nil
+	case StatusKitchen, StatusReady:
+		// Changing items the kitchen already has sends the order back to aberto, to be sent again.
+		// The caller's transaction rolls this back if the change itself fails.
+		return execOne(ctx, tx, `UPDATE orders SET status = ? WHERE id = ?`, StatusOpen, orderID)
 	}
-	return nil
+	return ErrNotEditable
 }
 
 // tx runs fn in a transaction, committing on nil and rolling back otherwise.

@@ -163,7 +163,7 @@ templ OrderEditorPage(o db.Order, menu []db.Category) {
 				@Button("secondary", templ.Attributes{"type": "button", "onclick": templ.JSUnsafeFuncCall("document.getElementById('acoes-sheet').showModal()")}) {
 					Ações
 				}
-				if o.Status == db.StatusOpen {
+				if canEditItems(o) {
 					<a
 						href={ templ.SafeURL(addItemURL(o.ID, "", 0)) }
 						hx-get={ addItemURL(o.ID, "", 0) }
@@ -173,7 +173,7 @@ templ OrderEditorPage(o db.Order, menu []db.Category) {
 					>+ Adicionar item</a>
 				}
 			</div>
-			if o.Status == db.StatusOpen {
+			if canEditItems(o) {
 				@BottomSheet("add-sheet", "Adicionar item") {
 					// After an add (HX-Trigger item-added-keep), the sheet goes back to the categories and stays open.
 					<div id="add-step" hx-get={ addItemURL(o.ID, "", 0) } hx-trigger="item-added-keep">
@@ -336,6 +336,7 @@ templ copyScript() {
 // (their texts and totals follow the items) and a toast out of band.
 templ ItemsUpdate(o db.Order, toast string) {
 	@orderItems(o)
+	@orderHeader(o, true) // the status may have gone back to aberto
 	@orderActions(o, true)
 	@PaymentPanel(o, true)
 	if toast != "" {
@@ -345,7 +346,7 @@ templ ItemsUpdate(o db.Order, toast string) {
 
 // orderItems shows the items and total of an order, with quantity buttons while it is open.
 templ orderItems(o db.Order) {
-	{{ editable := o.Status == db.StatusOpen }}
+	{{ editable := canEditItems(o) }}
 	<div class="space-y-4">
 		<p id="sheet-error" role="alert" class="empty:hidden font-medium text-danger"></p>
 		if len(o.Items) == 0 {

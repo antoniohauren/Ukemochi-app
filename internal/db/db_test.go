@@ -163,8 +163,29 @@ func TestAddItemRefused(t *testing.T) {
 	if err := d.SetStatus(ctx, id, StatusKitchen); err != nil {
 		t.Fatal(err)
 	}
-	if err := d.AddItem(ctx, id, p, 1, ""); !errors.Is(err, ErrNotEditable) {
-		t.Fatalf("add to cozinha order: %v", err)
+	status := func() string { o, _ := d.GetOrder(ctx, id); return o.Status }
+	// A failed item change leaves cozinha alone; a real one sends the order back to aberto.
+	if err := d.AddItem(ctx, id, p, 1, ""); !errors.Is(err, ErrInvalid) || status() != StatusKitchen {
+		t.Fatalf("failed add in cozinha: %v %s", err, status())
+	}
+	if err := d.SetItemQty(ctx, id, o.Items[0].ID, 1); err != nil || status() != StatusOpen {
+		t.Fatalf("edit in cozinha: %v %s", err, status())
+	}
+	for _, s := range []string{StatusKitchen, StatusReady} {
+		if err := d.SetStatus(ctx, id, s); err != nil {
+			t.Fatalf("%s: %v", s, err)
+		}
+	}
+	if err := d.SetItemNote(ctx, id, o.Items[0].ID, "sem cebola"); err != nil || status() != StatusOpen {
+		t.Fatalf("note in pronto: %v %s", err, status())
+	}
+	for _, s := range []string{StatusKitchen, StatusReady, StatusOut} {
+		if err := d.SetStatus(ctx, id, s); err != nil {
+			t.Fatalf("%s: %v", s, err)
+		}
+	}
+	if err := d.AddItem(ctx, id, p, 1, ""); !errors.Is(err, ErrNotEditable) || status() != StatusOut {
+		t.Fatalf("add to saiu order: %v %s", err, status())
 	}
 }
 

@@ -139,7 +139,7 @@ func (s *Server) orderEditor(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var menu []db.Category
-	if o.Status == db.StatusOpen {
+	if canEditItems(o) {
 		var err error
 		if menu, err = s.DB.Menu(r.Context(), true); err != nil {
 			fail(w, r, err)
@@ -188,7 +188,7 @@ func (s *Server) addItemStep(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if o.Status != db.StatusOpen {
+	if !canEditItems(o) {
 		redirect(w, r, orderURL(o.ID))
 		return
 	}
@@ -479,7 +479,7 @@ func errorStatus(err error) (int, string) {
 	case errors.Is(err, db.ErrCashShort):
 		return http.StatusUnprocessableEntity, "Valor recebido menor que o valor a pagar."
 	case errors.Is(err, db.ErrNotEditable):
-		return http.StatusConflict, "Itens só podem ser alterados com o pedido aberto."
+		return http.StatusConflict, "Itens não podem ser alterados depois que o pedido saiu ou foi fechado."
 	case errors.Is(err, db.ErrBadTransition):
 		return http.StatusConflict, "Mudança de status não permitida."
 	case errors.Is(err, db.ErrEmptyOrder):
@@ -517,4 +517,9 @@ var statusActions = []struct{ To, Label, Variant string }{
 	{db.StatusClosed, "Fechar", "primary"},
 	{db.StatusOpen, "Reabrir", "secondary"},
 	{db.StatusCancelled, "Cancelar pedido", "danger"},
+}
+
+// canEditItems reports whether o's items may change (db.AddItem); a change in cozinha or pronto moves it to aberto.
+func canEditItems(o db.Order) bool {
+	return o.Status == db.StatusOpen || o.Status == db.StatusKitchen || o.Status == db.StatusReady
 }

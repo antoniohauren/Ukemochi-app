@@ -133,17 +133,17 @@ func TestOrderFlow(t *testing.T) {
 	if rec.Header().Get("Location") != "/pedidos/1/imprimir?cozinha=1" {
 		t.Fatalf("to kitchen: %d %q", rec.Code, rec.Header().Get("Location"))
 	}
-	// Items are locked once in the kitchen; htmx gets a toast instead of a swap.
-	rec = do(h, "PATCH", line, url.Values{"qty": {"1"}}, true)
-	if rec.Header().Get("HX-Reswap") != "none" || !strings.Contains(rec.Body.String(), "pedido aberto") {
-		t.Fatalf("edit in kitchen: %s", rec.Body)
-	}
 	// pronto -> saiu is fine for delivery; skipping straight to fechado is not.
 	if rec := do(h, "POST", "/pedidos/1/status", url.Values{"para": {"fechado"}}, false); rec.Code != http.StatusConflict {
 		t.Fatalf("kitchen to closed: %d", rec.Code)
 	}
 	do(h, "POST", "/pedidos/1/status", url.Values{"para": {"pronto"}}, false)
 	do(h, "POST", "/pedidos/1/status", url.Values{"para": {"saiu"}}, false)
+	// Items are locked once out; htmx gets a toast instead of a swap.
+	rec = do(h, "PATCH", line, url.Values{"qty": {"1"}}, true)
+	if rec.Header().Get("HX-Reswap") != "none" || !strings.Contains(rec.Body.String(), "saiu ou foi fechado") {
+		t.Fatalf("edit when out: %s", rec.Body)
+	}
 	// Closing unpaid fails on the server.
 	if rec := do(h, "POST", "/pedidos/1/status", url.Values{"para": {"fechado"}}, false); rec.Code != http.StatusConflict ||
 		!strings.Contains(rec.Body.String(), "pagamento") {
@@ -333,7 +333,7 @@ func TestAddItemSteps(t *testing.T) {
 	}
 
 	// A closed-for-edits order sends the steps back to the editor.
-	do(h, "POST", "/pedidos/1/status", url.Values{"para": {"cozinha"}}, false)
+	do(h, "POST", "/pedidos/1/status", url.Values{"para": {"cancelado"}}, false)
 	if rec := do(h, "GET", "/pedidos/1/adicionar", nil, false); rec.Code != http.StatusSeeOther {
 		t.Errorf("not open: code %d", rec.Code)
 	}
@@ -417,8 +417,20 @@ func TestItemNote(t *testing.T) {
 	if err := s.DB.SetStatus(ctx, id, db.StatusKitchen); err != nil {
 		t.Fatal(err)
 	}
-	if rec := do(h, "POST", line, url.Values{"nota": {"x"}}, false); rec.Code != http.StatusConflict || note() != "" {
-		t.Errorf("not aberto: %d %q", rec.Code, note())
+	// In cozinha the items stay editable, and a change sends the order back to aberto with the header refreshed.
+	if b := do(h, "GET", orderURL(id), nil, false).Body.String(); !strings.Contains(b, "+ Adicionar item") {
+		t.Errorf("cozinha order should offer Adicionar item")
+	}
+	rec := do(h, "PATCH", line, url.Values{"nota": {"x"}}, true)
+	if o, _ := s.DB.GetOrder(ctx, id); rec.Code != http.StatusOK || o.Status != db.StatusOpen || note() != "x" ||
+		!strings.Contains(rec.Body.String(), `id="pedido-cabecalho" hx-swap-oob="true"`) {
+		t.Errorf("note in cozinha: %d %s %q", rec.Code, o.Status, note())
+	}
+	if err := s.DB.SetStatus(ctx, id, db.StatusCancelled); err != nil {
+		t.Fatal(err)
+	}
+	if rec := do(h, "POST", line, url.Values{"nota": {"y"}}, false); rec.Code != http.StatusConflict || note() != "x" {
+		t.Errorf("cancelado: %d %q", rec.Code, note())
 	}
 }
 
