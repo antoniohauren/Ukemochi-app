@@ -361,8 +361,8 @@ func TestEmptyOrderToKitchenHX(t *testing.T) {
 		t.Fatalf("status changed to %s", o.Status)
 	}
 	b := do(h, "GET", "/pedidos/1", nil, false).Body.String()
-	if !regexp.MustCompile(`<button[^>]*disabled[^>]*>\s*Enviar à cozinha`).MatchString(b) || !strings.Contains(b, "Adicione itens para enviar.") {
-		t.Error("Enviar à cozinha should be disabled with a hint on an empty order")
+	if !regexp.MustCompile(`<button[^>]*disabled[^>]*>\s*Enviar à cozinha`).MatchString(b) {
+		t.Error("Enviar à cozinha should be disabled on an empty order")
 	}
 }
 

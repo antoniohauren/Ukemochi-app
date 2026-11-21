@@ -479,11 +479,9 @@ templ statusForm(o db.Order, to, label, variant string) {
 		@Button(variant, templ.Attributes{"type": "submit", "disabled": unpaid || empty}) {
 			{ label }
 		}
-		if empty {
-			<p class="mt-1 text-center text-sm text-ink-muted">Adicione itens para enviar.</p>
-		} else if unpaid && o.PaymentCount == 0 {
+		if !empty && unpaid && o.PaymentCount == 0 {
 			<p class="mt-1 text-center text-sm text-ink-muted">Registre o pagamento para fechar.</p>
-		} else if unpaid {
+		} else if !empty && unpaid {
 			<p class="mt-1 text-center text-sm text-ink-muted">Os pagamentos não batem com o total.</p>
 		}
 	</form>
