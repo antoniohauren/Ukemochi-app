@@ -335,12 +335,12 @@ func (s *Server) setStatus(w http.ResponseWriter, r *http.Request) {
 	if to == db.StatusKitchen {
 		// The status already changed, so a print failure falls back to the browser ticket page.
 		if s.Print == nil {
-			redirect(w, r, orderURL(id)+"/imprimir?cozinha=1")
+			redirect(w, r, orderURL(id)+"/imprimir")
 			return
 		}
 		o, err := s.DB.GetOrder(r.Context(), id)
-		if err != nil || s.printTicket(o, true) != nil {
-			redirect(w, r, orderURL(id)+"/imprimir?cozinha=1")
+		if err != nil || s.printTicket(o) != nil {
+			redirect(w, r, orderURL(id)+"/imprimir")
 			return
 		}
 	}

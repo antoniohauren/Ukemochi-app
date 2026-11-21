@@ -20,7 +20,7 @@ func TestTicketLinesFit(t *testing.T) {
 			{Qty: 999, UnitPriceCents: 99999, PrintableName: "COMBINADO ESPECIAL DA CASA XL 40", Note: "sem wasabi"},
 			{Qty: 1, UnitPriceCents: 600, PrintableName: "ABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJ"},
 		}}
-	text := ticketText(o, false)
+	text := ticketText(o)
 	for _, l := range strings.Split(text, "\n") {
 		if n := utf8.RuneCountInString(l); n > ticketWidth {
 			t.Errorf("line has %d chars: %q", n, l)
@@ -28,7 +28,7 @@ func TestTicketLinesFit(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Pedido #12           19/11 18:30", // São Paulo is UTC-3
-		"HOT ROLL\n2x                      R$ 30,00\n",
+		"\n2x HOT ROLL\n                        R$ 30,00\n",
 		"TOTAL                R$ 1.234,56",
 		"\n\n            A PAGAR",
 	} {
@@ -38,18 +38,15 @@ func TestTicketLinesFit(t *testing.T) {
 	}
 	// A split bill lists each part and what is left.
 	o.Payments = []db.Payment{{Method: "pix", AmountCents: 100000}, {Method: "dinheiro", AmountCents: 3456}}
-	split := ticketText(o, false)
+	split := ticketText(o)
 	for _, want := range []string{"PAGO PIX             R$ 1.000,00", "PAGO Dinheiro           R$ 34,56", "A PAGAR                R$ 200,00"} {
 		if !strings.Contains(split, want) {
 			t.Errorf("split ticket lacks %q:\n%s", want, split)
 		}
 	}
 	o.Payments = []db.Payment{{Method: "pix", AmountCents: o.TotalCents}}
-	if !strings.Contains(ticketText(o, false), "PAGO                         PIX") {
-		t.Errorf("paid ticket:\n%s", ticketText(o, false))
-	}
-	if c := ticketText(o, true); !strings.Contains(c, "\n2x HOT ROLL\n") || strings.Contains(c, "R$ 30,00") {
-		t.Errorf("kitchen ticket:\n%s", c)
+	if !strings.Contains(ticketText(o), "PAGO                         PIX") {
+		t.Errorf("paid ticket:\n%s", ticketText(o))
 	}
 }
 
@@ -70,13 +67,10 @@ func TestPrintPage(t *testing.T) {
 	do(h, "POST", "/pedidos", newOrderForm("Maria"), false)
 	do(h, "POST", "/pedidos/1/itens", url.Values{"produto": {itoa(prod)}}, false)
 	body := do(h, "GET", "/pedidos/1/imprimir", nil, false).Body.String()
-	for _, want := range []string{"/static/print.css", "window.print()", "HOT ROLL\n1x "} {
+	for _, want := range []string{"/static/print.css", "window.print()", "1x HOT ROLL\n "} {
 		if !strings.Contains(body, want) {
 			t.Errorf("print page lacks %q", want)
 		}
-	}
-	if k := do(h, "GET", "/pedidos/1/imprimir?cozinha=1", nil, false).Body.String(); !strings.Contains(k, "1x HOT ROLL\n") {
-		t.Error("kitchen print page lacks the one-line item")
 	}
 	if strings.Contains(body, "app.css") {
 		t.Error("print page loads Tailwind")
@@ -111,14 +105,14 @@ func TestPrintToPrinter(t *testing.T) {
 	var fail error
 	s.Print = func(text string) error { sent = append(sent, text); return fail }
 	rec := do(h, "POST", "/pedidos/1/imprimir", nil, true)
-	if len(sent) != 1 || !strings.Contains(sent[0], "HOT ROLL\n1x ") || !strings.Contains(rec.Body.String(), "Ticket impresso") {
+	if len(sent) != 1 || !strings.Contains(sent[0], "1x HOT ROLL\n ") || !strings.Contains(rec.Body.String(), "Ticket impresso") {
 		t.Fatalf("print: %q %s", sent, rec.Body)
 	}
-	// Sending to the kitchen prints the one-line, priceless ticket and stays on the order.
+	// Sending to the kitchen prints the same ticket, prices included, and stays on the order.
 	if rec := do(h, "POST", "/pedidos/1/status", url.Values{"para": {"cozinha"}}, false); rec.Header().Get("Location") != "/pedidos/1" || len(sent) != 2 {
 		t.Fatalf("kitchen: %q, %d prints", rec.Header().Get("Location"), len(sent))
 	}
-	if !strings.Contains(sent[1], "\n1x HOT ROLL\n") {
+	if sent[1] != sent[0] {
 		t.Fatalf("kitchen ticket:\n%s", sent[1])
 	}
 

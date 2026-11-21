@@ -21,8 +21,7 @@ func (s *Server) registerPrint(mux *http.ServeMux) {
 		if !ok {
 			return
 		}
-		// ?cozinha comes from the send-to-kitchen fallback.
-		render(w, r, http.StatusOK, TicketPage(o, ticketText(o, r.URL.Query().Has("cozinha"))))
+		render(w, r, http.StatusOK, TicketPage(o, ticketText(o)))
 	})
 	// Without a configured printer this falls back to the browser ticket page.
 	mux.HandleFunc("POST /pedidos/{id}/imprimir", func(w http.ResponseWriter, r *http.Request) {
@@ -38,7 +37,7 @@ func (s *Server) registerPrint(mux *http.ServeMux) {
 			redirect(w, r, orderURL(o.ID)+"/imprimir")
 			return
 		}
-		if err := s.printTicket(o, false); err != nil {
+		if err := s.printTicket(o); err != nil {
 			fail(w, r, inputError("Impressora não respondeu. Ligue a impressora e tente de novo."))
 			return
 		}
@@ -52,8 +51,8 @@ func (s *Server) registerPrint(mux *http.ServeMux) {
 }
 
 // printTicket sends o to the printer, logging a failure here.
-func (s *Server) printTicket(o db.Order, kitchen bool) error {
-	err := s.Print(ticketText(o, kitchen))
+func (s *Server) printTicket(o db.Order) error {
+	err := s.Print(ticketText(o))
 	if err != nil {
 		log.Printf("print order %d: %v", o.ID, err)
 	}
@@ -61,8 +60,9 @@ func (s *Server) printTicket(o db.Order, kitchen bool) error {
 }
 
 // ticketText lays the order out in lines of at most ticketWidth characters.
-// kitchen prints each item as "1x name" on one line, without its price.
-func ticketText(o db.Order, kitchen bool) string {
+// Each item prints as "1x name" with its price right-aligned on the next line. The kitchen
+// gets the same ticket.
+func ticketText(o db.Order) string {
 	var lines []string
 	add := func(l ...string) { lines = append(lines, l...) }
 	sep := strings.Repeat("-", ticketWidth)
@@ -76,12 +76,8 @@ func ticketText(o db.Order, kitchen bool) string {
 	}
 	add(sep)
 	for _, it := range o.Items {
-		if kitchen {
-			add(wrap(fmt.Sprintf("%dx %s", it.Qty, it.PrintableName))...)
-		} else {
-			add(wrap(it.PrintableName)...)
-			add(leftRight(fmt.Sprintf("%dx", it.Qty), money.Format(it.Qty*it.UnitPriceCents))...)
-		}
+		add(wrap(fmt.Sprintf("%dx %s", it.Qty, it.PrintableName))...)
+		add(leftRight("", money.Format(it.Qty*it.UnitPriceCents))...)
 		if it.Note != "" {
 			add(wrap("  obs: " + it.Note)...)
 		}

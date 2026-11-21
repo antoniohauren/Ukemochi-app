@@ -130,7 +130,7 @@ func TestOrderFlow(t *testing.T) {
 	}
 
 	rec = do(h, "POST", "/pedidos/1/status", url.Values{"para": {"cozinha"}}, false)
-	if rec.Header().Get("Location") != "/pedidos/1/imprimir?cozinha=1" {
+	if rec.Header().Get("Location") != "/pedidos/1/imprimir" {
 		t.Fatalf("to kitchen: %d %q", rec.Code, rec.Header().Get("Location"))
 	}
 	// pronto -> saiu is fine for delivery; skipping straight to fechado is not.
@@ -432,7 +432,7 @@ func TestItemNote(t *testing.T) {
 		t.Fatalf("note without qty changed qty to %d", o.Items[0].Qty)
 	}
 	o, _ = s.DB.GetOrder(ctx, id)
-	if txt := ticketText(o, false); !strings.Contains(txt, "sem cebolinha") {
+	if txt := ticketText(o); !strings.Contains(txt, "sem cebolinha") {
 		t.Errorf("ticket lacks the note:\n%s", txt)
 	}
 	if msg, _ := orderMessage(o, msgConfirm); !strings.Contains(msg, "sem cebolinha") {
