@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -343,5 +344,31 @@ func TestClientLabel(t *testing.T) {
 	}
 	if got := (Order{ClientName: "Ana"}).ClientLabel(); got != "Ana" {
 		t.Errorf("without phone: %q", got)
+	}
+}
+
+// Items sort as Portuguese reads, accents ignored: "Água" comes before "Suco".
+func TestMenuSortsAccents(t *testing.T) {
+	d := openTest(t)
+	ctx := context.Background()
+	cat, err := d.CreateCategory(ctx, "Bebidas", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"Suco", "Água", "agua de coco", "Café"} {
+		if _, err := d.CreateItem(ctx, Item{CategoryID: cat, Name: name, Active: true}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	menu, err := d.Menu(ctx, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, it := range menu[0].Items {
+		got = append(got, it.Name)
+	}
+	if want := "Água,agua de coco,Café,Suco"; strings.Join(got, ",") != want {
+		t.Errorf("order = %v, want %s", got, want)
 	}
 }

@@ -51,6 +51,12 @@ func DisplayName(item, variant, size string) string {
 	return strings.Join(parts, " ")
 }
 
+// accentFold maps the accented letters of Portuguese to their base letter, for sorting.
+var accentFold = strings.NewReplacer("á", "a", "à", "a", "â", "a", "ã", "a", "é", "e", "ê", "e", "í", "i", "ó", "o", "ô", "o", "õ", "o", "ú", "u", "ü", "u", "ç", "c")
+
+// sortKey is name lowercased with accents dropped, so "Água" sorts with the a's.
+func sortKey(name string) string { return accentFold.Replace(strings.ToLower(name)) }
+
 // Menu returns every category with its items and products. With activeOnly, inactive items
 // and products are left out, and so are items left with no active product.
 func (d *DB) Menu(ctx context.Context, activeOnly bool) ([]Category, error) {
@@ -66,6 +72,8 @@ func (d *DB) Menu(ctx context.Context, activeOnly bool) ([]Category, error) {
 	if err != nil {
 		return nil, err
 	}
+	// SQLite's ORDER BY compares bytes, which puts "Água" after "Suco"; sort as Portuguese reads.
+	slices.SortStableFunc(items, func(a, b Item) int { return strings.Compare(sortKey(a.Name), sortKey(b.Name)) })
 	prods, err := queryAll(ctx, d, `SELECT id, item_id, variant, size, printable_name, price_cents, active
 		FROM products ORDER BY price_cents, variant, size`,
 		func(r *sql.Rows, p *Product) error {
