@@ -21,7 +21,8 @@ func (s *Server) registerPrint(mux *http.ServeMux) {
 		if !ok {
 			return
 		}
-		render(w, r, http.StatusOK, TicketPage(o, ticketText(o, s.CompactTicket)))
+		// ?cozinha comes from the send-to-kitchen fallback.
+		render(w, r, http.StatusOK, TicketPage(o, ticketText(o, r.URL.Query().Has("cozinha"))))
 	})
 	// Without a configured printer this falls back to the browser ticket page.
 	mux.HandleFunc("POST /pedidos/{id}/imprimir", func(w http.ResponseWriter, r *http.Request) {
@@ -37,7 +38,7 @@ func (s *Server) registerPrint(mux *http.ServeMux) {
 			redirect(w, r, orderURL(o.ID)+"/imprimir")
 			return
 		}
-		if err := s.printTicket(o); err != nil {
+		if err := s.printTicket(o, false); err != nil {
 			fail(w, r, inputError("Impressora não respondeu. Ligue a impressora e tente de novo."))
 			return
 		}
@@ -51,8 +52,8 @@ func (s *Server) registerPrint(mux *http.ServeMux) {
 }
 
 // printTicket sends o to the printer, logging a failure here.
-func (s *Server) printTicket(o db.Order) error {
-	err := s.Print(ticketText(o, s.CompactTicket))
+func (s *Server) printTicket(o db.Order, kitchen bool) error {
+	err := s.Print(ticketText(o, kitchen))
 	if err != nil {
 		log.Printf("print order %d: %v", o.ID, err)
 	}
@@ -60,8 +61,8 @@ func (s *Server) printTicket(o db.Order) error {
 }
 
 // ticketText lays the order out in lines of at most ticketWidth characters.
-// compact prints each item as "1x name" without its price.
-func ticketText(o db.Order, compact bool) string {
+// kitchen prints each item as "1x name" on one line, without its price.
+func ticketText(o db.Order, kitchen bool) string {
 	var lines []string
 	add := func(l ...string) { lines = append(lines, l...) }
 	sep := strings.Repeat("-", ticketWidth)
@@ -75,7 +76,7 @@ func ticketText(o db.Order, compact bool) string {
 	}
 	add(sep)
 	for _, it := range o.Items {
-		if compact {
+		if kitchen {
 			add(wrap(fmt.Sprintf("%dx %s", it.Qty, it.PrintableName))...)
 		} else {
 			add(wrap(it.PrintableName)...)

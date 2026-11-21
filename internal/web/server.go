@@ -14,8 +14,6 @@ type Server struct {
 	Auth *Auth
 	// Print sends ticket text to the printer. Nil means print from the phone's browser instead.
 	Print func(text string) error
-	// CompactTicket prints each item as "1x name" on one line, without its price.
-	CompactTicket bool
 }
 
 // Routes registers every feature's routes on mux.

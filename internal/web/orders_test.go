@@ -130,7 +130,7 @@ func TestOrderFlow(t *testing.T) {
 	}
 
 	rec = do(h, "POST", "/pedidos/1/status", url.Values{"para": {"cozinha"}}, false)
-	if rec.Header().Get("Location") != "/pedidos/1/imprimir" {
+	if rec.Header().Get("Location") != "/pedidos/1/imprimir?cozinha=1" {
 		t.Fatalf("to kitchen: %d %q", rec.Code, rec.Header().Get("Location"))
 	}
 	// Items are locked once in the kitchen; htmx gets a toast instead of a swap.

@@ -49,7 +49,7 @@ func TestTicketLinesFit(t *testing.T) {
 		t.Errorf("paid ticket:\n%s", ticketText(o, false))
 	}
 	if c := ticketText(o, true); !strings.Contains(c, "\n2x HOT ROLL\n") || strings.Contains(c, "R$ 30,00") {
-		t.Errorf("compact ticket:\n%s", c)
+		t.Errorf("kitchen ticket:\n%s", c)
 	}
 }
 
@@ -74,6 +74,9 @@ func TestPrintPage(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("print page lacks %q", want)
 		}
+	}
+	if k := do(h, "GET", "/pedidos/1/imprimir?cozinha=1", nil, false).Body.String(); !strings.Contains(k, "1x HOT ROLL\n") {
+		t.Error("kitchen print page lacks the one-line item")
 	}
 	if strings.Contains(body, "app.css") {
 		t.Error("print page loads Tailwind")
@@ -108,12 +111,15 @@ func TestPrintToPrinter(t *testing.T) {
 	var fail error
 	s.Print = func(text string) error { sent = append(sent, text); return fail }
 	rec := do(h, "POST", "/pedidos/1/imprimir", nil, true)
-	if len(sent) != 1 || !strings.Contains(sent[0], "HOT ROLL") || !strings.Contains(rec.Body.String(), "Ticket impresso") {
+	if len(sent) != 1 || !strings.Contains(sent[0], "HOT ROLL\n1x ") || !strings.Contains(rec.Body.String(), "Ticket impresso") {
 		t.Fatalf("print: %q %s", sent, rec.Body)
 	}
-	// Sending to the kitchen prints and stays on the order.
+	// Sending to the kitchen prints the one-line, priceless ticket and stays on the order.
 	if rec := do(h, "POST", "/pedidos/1/status", url.Values{"para": {"cozinha"}}, false); rec.Header().Get("Location") != "/pedidos/1" || len(sent) != 2 {
 		t.Fatalf("kitchen: %q, %d prints", rec.Header().Get("Location"), len(sent))
+	}
+	if !strings.Contains(sent[1], "\n1x HOT ROLL\n") {
+		t.Fatalf("kitchen ticket:\n%s", sent[1])
 	}
 
 	fail = errors.New("off")

@@ -95,7 +95,7 @@ func run() error {
 		w.Header().Set("Cache-Control", "no-cache")
 		http.ServeFileFS(w, r, static, "sw.js")
 	})
-	server := &web.Server{DB: database, Auth: auth, CompactTicket: os.Getenv("TICKET_ITEMS") == "compact"}
+	server := &web.Server{DB: database, Auth: auth}
 	if mac := os.Getenv("PRINTER_BT"); mac != "" {
 		server.Print = func(text string) error { return btprint.Send(mac, btprint.Ticket(text)) }
 		log.Printf("printing to bluetooth printer %s", mac)
