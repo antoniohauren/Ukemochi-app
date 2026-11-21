@@ -193,7 +193,7 @@ func TestPaymentOverpaidAfterReopen(t *testing.T) {
 	s, h, prod := dbServer(t)
 	ctx := context.Background()
 	id := orderWith(t, s, prod, 2) // R$ 30,00
-	if err := s.DB.AddPayment(ctx, id, "pix", 3000, 0); err != nil {
+	if err := s.DB.AddPayment(ctx, id, "pix", 3000, 0, 1); err != nil {
 		t.Fatal(err)
 	}
 	o, _ := s.DB.GetOrder(ctx, id)
@@ -210,5 +210,20 @@ func TestPaymentOverpaidAfterReopen(t *testing.T) {
 	s.DB.SetStatus(ctx, id, db.StatusReady)
 	if rec := do(h, "POST", orderURL(id)+"/status", url.Values{"para": {db.StatusClosed}}, false); rec.Code != http.StatusConflict {
 		t.Errorf("closing an overpaid order: code %d", rec.Code)
+	}
+}
+
+// The split is stored with each part, so the sheet reopens on it after a reload or on another phone.
+func TestPaymentSplitKept(t *testing.T) {
+	s, h, prod := dbServer(t)
+	id := orderWith(t, s, prod, 8) // R$ 120,00
+	if rec := do(h, "POST", orderURL(id)+"/pagamento", url.Values{"metodo": {"pix"}, "valor": {"40"}, "pessoas": {"3"}}, true); rec.Code != http.StatusOK {
+		t.Fatalf("pay: %d", rec.Code)
+	}
+	b := do(h, "GET", orderURL(id), nil, false).Body.String()
+	for _, want := range []string{`name="pessoas" value="3"`, `name="valor" value="40,00"`, "Parte 2 de 3"} {
+		if !strings.Contains(b, want) {
+			t.Errorf("fresh GET lacks %s", want)
+		}
 	}
 }

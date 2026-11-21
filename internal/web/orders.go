@@ -34,7 +34,7 @@ const maxFormBytes = 16 << 10
 func (s *Server) registerOrders(mux *http.ServeMux) {
 	mux.HandleFunc("GET /{$}", s.orderList)
 	mux.HandleFunc("GET /pedidos/novo", func(w http.ResponseWriter, r *http.Request) {
-		render(w, r, http.StatusOK, NewOrderPage(db.NewOrder{Channel: "whatsapp", Consume: db.ConsumeDelivery}, ""))
+		render(w, r, http.StatusOK, NewOrderPage(db.NewOrder{Channel: "whatsapp", Consume: db.ConsumeDelivery}, "", ""))
 	})
 	mux.HandleFunc("POST /pedidos", s.createOrder)
 	mux.HandleFunc("GET /pedidos/{id}", s.orderEditor)
@@ -62,9 +62,9 @@ func (s *Server) createOrder(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, err)
 		return
 	}
-	o, err := parseNewOrder(r)
+	o, field, err := parseNewOrder(r)
 	if err != nil {
-		render(w, r, http.StatusUnprocessableEntity, NewOrderPage(o, err.Error()))
+		render(w, r, http.StatusUnprocessableEntity, NewOrderPage(o, err.Error(), field))
 		return
 	}
 	id, err := s.DB.CreateOrder(r.Context(), o)
@@ -75,8 +75,9 @@ func (s *Server) createOrder(w http.ResponseWriter, r *http.Request) {
 	redirect(w, r, orderURL(id))
 }
 
-func parseNewOrder(r *http.Request) (db.NewOrder, error) {
-	o := db.NewOrder{
+// parseNewOrder reads the new-order form. On error, field names the input at fault ("" for the radio choices).
+func parseNewOrder(r *http.Request) (o db.NewOrder, field string, err error) {
+	o = db.NewOrder{
 		Channel:    r.PostFormValue("canal"),
 		Consume:    r.PostFormValue("consumo"),
 		ClientName: strings.TrimSpace(r.PostFormValue("nome")),
@@ -96,22 +97,17 @@ func parseNewOrder(r *http.Request) (db.NewOrder, error) {
 	}
 	switch {
 	case o.Channel != "whatsapp" && o.Channel != "balcao":
-		return o, inputError("Escolha WhatsApp ou Balcão.")
+		return o, "", inputError("Escolha WhatsApp ou Balcão.")
 	case o.Consume != db.ConsumeDelivery && o.Consume != db.ConsumeLocal:
-		return o, inputError("Escolha entrega ou consumo no local.")
-	case o.ClientName == "":
-		return o, inputError("Informe o nome do cliente.")
-	case len([]rune(o.ClientName)) > 60:
-		return o, inputError("Nome muito longo (máx. 60).")
-	case o.PhoneLast4 != "" && !isDigits(o.PhoneLast4, 4):
-		return o, inputError("Telefone: informe só os 4 últimos dígitos.")
-	case len([]rune(o.Notes)) > 200:
-		return o, inputError("Observação muito longa (máx. 200).")
+		return o, "", inputError("Escolha entrega ou consumo no local.")
 	}
 	if err := checkAddress(o.Consume, o.Address); err != nil {
-		return o, err
+		return o, "endereco", err
 	}
-	return o, nil
+	if field, err := checkCustomer(o.ClientName, o.PhoneLast4, o.Notes); err != nil {
+		return o, field, err
+	}
+	return o, "", nil
 }
 
 // checkAddress requires a delivery address for entrega.
@@ -180,7 +176,7 @@ func (s *Server) addItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if isHX(r) {
-		w.Header().Set("HX-Trigger", "item-added") // closes the add sheet
+		w.Header().Set("HX-Trigger", "item-added-keep") // the add sheet goes back to the categories and stays open
 	}
 	s.itemsChanged(w, r, id, "Item adicionado")
 }
@@ -250,7 +246,8 @@ func pickStep(r *http.Request, orderID int64, menu []db.Category) (templ.Compone
 	return AddCategoryStep(orderID, menu), "Adicionar item", nil
 }
 
-// setItemQty handles PATCH (and its POST fallback) with qty, and DELETE. A qty of 0 removes the line.
+// setItemQty handles PATCH (and its POST fallback) with qty and/or nota, and DELETE. A qty of 0 removes the line.
+// A nota without qty changes only the line's note.
 func (s *Server) setItemQty(w http.ResponseWriter, r *http.Request) {
 	id, ok1 := pathID(r, "id")
 	item, ok2 := pathID(r, "item")
@@ -263,6 +260,21 @@ func (s *Server) setItemQty(w http.ResponseWriter, r *http.Request) {
 		if err := parseForm(w, r); err != nil {
 			fail(w, r, err)
 			return
+		}
+		if _, ok := r.PostForm["nota"]; ok {
+			note := strings.TrimSpace(r.PostFormValue("nota"))
+			if len([]rune(note)) > db.MaxItemNote {
+				fail(w, r, inputError(fmt.Sprintf("Observação do item muito longa (máx. %d).", db.MaxItemNote)))
+				return
+			}
+			if err := s.DB.SetItemNote(r.Context(), id, item, note); err != nil {
+				fail(w, r, err)
+				return
+			}
+			if r.PostFormValue("qty") == "" {
+				s.itemsChanged(w, r, id, "Observação salva")
+				return
+			}
 		}
 		var err error
 		qty, err = strconv.ParseInt(r.PostFormValue("qty"), 10, 64)
@@ -442,6 +454,8 @@ func fail(w http.ResponseWriter, r *http.Request, err error) {
 			c = templ.Join(c, sheetError("acoes-erro", msg))
 		case "consumo":
 			c = templ.Join(c, sheetError("consumo-erro", msg))
+		case "cliente":
+			c = templ.Join(c, sheetError("cliente-erro", msg))
 		}
 		render(w, r, http.StatusOK, c)
 		return

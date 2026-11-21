@@ -82,3 +82,7 @@ FROM (SELECT o.id, o.payment, o.cash_given_cents AS cash, o.paid_at, o.created_a
 ALTER TABLE orders DROP COLUMN payment;
 ALTER TABLE orders DROP COLUMN paid_at;
 ALTER TABLE orders DROP COLUMN cash_given_cents;
+
+-- migrate: 4
+-- The bill split is kept on the order, so the payment sheet reopens on the same number of people.
+ALTER TABLE orders ADD COLUMN split_people INTEGER NOT NULL DEFAULT 1;

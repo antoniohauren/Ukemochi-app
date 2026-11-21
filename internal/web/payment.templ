@@ -1,6 +1,7 @@
 package web
 
 import (
+	"fmt"
 	"strconv"
 
 	"github.com/antoniohauren/ukemochi/internal/db"
@@ -29,7 +30,7 @@ templ paymentSummary(o db.Order) {
 
 // paymentStatus says whether the parts cover the total: unpaid, paid, short or over.
 templ paymentStatus(o db.Order) {
-	switch {
+	switch  {
 		case o.PaymentCount == 0:
 			<p class="text-ink-muted">Não pago.</p>
 		case o.Paid():
@@ -76,9 +77,9 @@ templ paymentList(o db.Order, removable bool) {
 }
 
 // PaymentPanel is the body of the payment sheet: the total, the parts paid so far and the form for the next part.
-// people is how many split the bill (1 pays all that is left); it is kept between parts.
+// The split picker starts at o.SplitPeople (1 pays all that is left), stored with each part, so it survives a reload.
 // oob marks it for an htmx out-of-band swap when the order's items change.
-templ PaymentPanel(o db.Order, people int64, oob bool) {
+templ PaymentPanel(o db.Order, oob bool) {
 	<div
 		id="pagamento"
 		if oob {
@@ -115,6 +116,7 @@ templ PaymentPanel(o db.Order, people int64, oob bool) {
 						}
 					</div>
 				</fieldset>
+				{{ people := max(o.SplitPeople, 1) }}
 				{{ share := db.EqualShare(o.TotalCents, people) }}
 				if rest > 0 {
 					// Picking how many people split the bill fills the amount with one share (splitScript).
@@ -131,7 +133,7 @@ templ PaymentPanel(o db.Order, people int64, oob bool) {
 						</div>
 					</div>
 				}
-				@MoneyInput("valor", "Valor a pagar", plainMoney(min(share, rest)), nil)
+				@MoneyInput("valor", amountLabel(o, people), plainMoney(min(share, rest)), nil)
 				// Shown only while Dinheiro is checked.
 				<div class="hidden space-y-2 group-has-[#pagamento-dinheiro:checked]:block">
 					@MoneyInput("recebido", "Valor recebido (opcional)", "", nil)
@@ -196,6 +198,14 @@ templ ChangeLine(label, amount string, ok bool) {
 // plainMoney formats cents for a MoneyInput, which already shows the R$ prefix: "50,00".
 func plainMoney(cents int64) string {
 	return money.Format(cents)[len("R$ "):]
+}
+
+// amountLabel names the amount field, with the part being paid when the bill is split: "Valor a pagar · Parte 2 de 3".
+func amountLabel(o db.Order, people int64) string {
+	if people < 2 {
+		return "Valor a pagar"
+	}
+	return fmt.Sprintf("Valor a pagar · Parte %d de %d", min(o.PaymentCount+1, people), people)
 }
 
 func paymentURL(orderID, paymentID int64) string {

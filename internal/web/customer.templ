@@ -1,0 +1,71 @@
+package web
+
+import "github.com/antoniohauren/ukemochi/internal/db"
+
+// CustomerUpdate answers an htmx customer edit: the customer sheet, then the actions sheet and header out of band.
+// The handler's HX-Trigger (cliente-salvo) sends the customer sheet back to the actions sheet.
+templ CustomerUpdate(o db.Order) {
+	@CustomerPanel(o)
+	@orderActions(o, true)
+	@orderHeader(o, true)
+}
+
+// CustomerPanel is the body of the customer sheet: the client's name, phone and the order's note.
+templ CustomerPanel(o db.Order) {
+	<div id="cliente" class="space-y-3">
+		<p id="cliente-erro" role="alert" class="empty:hidden font-medium text-danger"></p>
+		<form
+			method="post"
+			action={ orderURL(o.ID) + "/cliente" }
+			hx-post={ orderURL(o.ID) + "/cliente" }
+			hx-target="#cliente"
+			hx-swap="outerHTML"
+			hx-disabled-elt="find button[type=submit]"
+			hx-on:cliente-salvo="document.getElementById('cliente-sheet').close(); document.getElementById('acoes-sheet').showModal()"
+			class="space-y-3"
+		>
+			@customerFields(o.ClientName, o.PhoneLast4, o.Notes, "", "")
+			<div class="grid">
+				@Button("primary", templ.Attributes{"type": "submit"}) {
+					Salvar
+				}
+			</div>
+		</form>
+		@sheetBack("cliente-sheet", false)
+	</div>
+}
+
+// customerFields are the name, phone and note inputs of the new-order form and the customer sheet.
+// errField marks the input at fault (see invalid), with errMsg under it.
+templ customerFields(name, phone, notes, errField, errMsg string) {
+	<label class="block">
+		<span class="mb-1 block text-sm font-medium text-ink-muted">Nome do cliente</span>
+		<input type="text" name="nome" value={ name } required maxlength="60" autocomplete="off" autocapitalize="words" class={ fieldClass() } { invalid(errField, "nome")... }/>
+		@fieldError(errField, "nome", errMsg)
+	</label>
+	<label class="block">
+		<span class="mb-1 block text-sm font-medium text-ink-muted">Telefone (4 últimos dígitos, opcional)</span>
+		<input type="text" name="telefone" value={ phone } inputmode="numeric" pattern="[0-9]{4}" maxlength="4" title="4 dígitos, ex.: 1234" autocomplete="off" class={ fieldClass() } { invalid(errField, "telefone")... }/>
+		@fieldError(errField, "telefone", errMsg)
+	</label>
+	<label class="block">
+		<span class="mb-1 block text-sm font-medium text-ink-muted">Observação (opcional)</span>
+		<textarea name="obs" maxlength="200" rows="2" class={ fieldClass() + " py-3" } { invalid(errField, "obs")... }>{ notes }</textarea>
+		@fieldError(errField, "obs", errMsg)
+	</label>
+}
+
+// fieldError shows msg under the input named name when it is the one at fault.
+templ fieldError(errField, name, msg string) {
+	if errField == name {
+		<p id={ name + "-erro" } role="alert" class="mt-1 font-medium text-danger">{ msg }</p>
+	}
+}
+
+// invalid marks the input named name when it is the one at fault: red border (fieldClass) and focus.
+func invalid(errField, name string) templ.Attributes {
+	if errField != name {
+		return nil
+	}
+	return templ.Attributes{"aria-invalid": "true", "aria-describedby": name + "-erro", "autofocus": true}
+}

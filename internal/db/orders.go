@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"time"
+	"unicode/utf8"
 )
 
 var (
@@ -42,21 +43,22 @@ const timeFormat = "2006-01-02T15:04:05Z"
 func now() string { return time.Now().UTC().Format(timeFormat) }
 
 type Order struct {
-	ID             int64
-	Channel        string
-	Consume        string
-	ClientName     string
-	PhoneLast4     string
-	Status         string
-	Notes          string
-	Address        string // delivery address; empty for local
-	CreatedAt      string
-	ClosedAt       string
-	TotalCents     int64
-	PaidCents      int64       // sum of the payment parts
-	PaymentCount   int64       // number of payment parts
-	Items          []OrderItem // filled by GetOrder only
-	Payments       []Payment   // filled by GetOrder only, oldest first
+	ID           int64
+	Channel      string
+	Consume      string
+	ClientName   string
+	PhoneLast4   string
+	Status       string
+	Notes        string
+	Address      string // delivery address; empty for local
+	CreatedAt    string
+	ClosedAt     string
+	TotalCents   int64
+	PaidCents    int64       // sum of the payment parts
+	PaymentCount int64       // number of payment parts
+	SplitPeople  int64       // how many people split the bill, kept from the last payment part
+	Items        []OrderItem // filled by GetOrder only
+	Payments     []Payment   // filled by GetOrder only, oldest first
 }
 
 // RemainingCents is what is still to pay; negative when the parts add up to more than the total.
@@ -124,11 +126,11 @@ const orderCols = `o.id, o.channel, o.consume, o.client_name, COALESCE(o.phone_l
 	o.notes, o.address, o.created_at, COALESCE(o.closed_at, ''),
 	(SELECT COALESCE(SUM(qty * unit_price_cents), 0) FROM order_items WHERE order_id = o.id),
 	(SELECT COALESCE(SUM(amount_cents), 0) FROM order_payments WHERE order_id = o.id),
-	(SELECT COUNT(*) FROM order_payments WHERE order_id = o.id)`
+	(SELECT COUNT(*) FROM order_payments WHERE order_id = o.id), o.split_people`
 
 func scanOrder(r interface{ Scan(...any) error }, o *Order) error {
 	return r.Scan(&o.ID, &o.Channel, &o.Consume, &o.ClientName, &o.PhoneLast4, &o.Status,
-		&o.Notes, &o.Address, &o.CreatedAt, &o.ClosedAt, &o.TotalCents, &o.PaidCents, &o.PaymentCount)
+		&o.Notes, &o.Address, &o.CreatedAt, &o.ClosedAt, &o.TotalCents, &o.PaidCents, &o.PaymentCount, &o.SplitPeople)
 }
 
 // GetOrder returns one order with its items and total.
@@ -221,6 +223,45 @@ func (d *DB) SetItemQty(ctx context.Context, orderID, itemID, qty int64) error {
 			return execOne(ctx, tx, `DELETE FROM order_items WHERE id = ? AND order_id = ?`, itemID, orderID)
 		}
 		return execOne(ctx, tx, `UPDATE order_items SET qty = ? WHERE id = ? AND order_id = ?`, qty, itemID, orderID)
+	})
+}
+
+// MaxItemNote is the longest note on one order line, in runes.
+const MaxItemNote = 100
+
+// SetItemNote changes a line's note on an open order. An empty note clears it.
+func (d *DB) SetItemNote(ctx context.Context, orderID, itemID int64, note string) error {
+	if utf8.RuneCountInString(note) > MaxItemNote {
+		return ErrInvalid
+	}
+	return d.tx(ctx, func(tx *sql.Tx) error {
+		if err := requireOpen(ctx, tx, orderID); err != nil {
+			return err
+		}
+		return execOne(ctx, tx, `UPDATE order_items SET note = ? WHERE id = ? AND order_id = ?`, note, itemID, orderID)
+	})
+}
+
+// SetCustomer changes the client's name, phone (last 4 digits, may be empty) and the order's note,
+// at any status except fechado and cancelado. The handler validates the values.
+func (d *DB) SetCustomer(ctx context.Context, id int64, name, phoneLast4, notes string) error {
+	if name == "" {
+		return ErrInvalid
+	}
+	return d.tx(ctx, func(tx *sql.Tx) error {
+		var status string
+		err := tx.QueryRowContext(ctx, `SELECT status FROM orders WHERE id = ?`, id).Scan(&status)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		if status == StatusClosed || status == StatusCancelled {
+			return ErrBadTransition
+		}
+		return execOne(ctx, tx, `UPDATE orders SET client_name = ?, phone_last4 = NULLIF(?, ''), notes = ? WHERE id = ?`,
+			name, phoneLast4, notes, id)
 	})
 }
 

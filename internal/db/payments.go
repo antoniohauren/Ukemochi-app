@@ -28,8 +28,9 @@ func (d *DB) payments(ctx context.Context, orderID int64) ([]Payment, error) {
 // AddPayment records one payment part, at any status except fechado and cancelado.
 // The amount may not exceed what is left to pay, and is above 0 unless the order costs nothing.
 // cashGivenCents is stored only for dinheiro, only when above 0, and must cover the amount.
-func (d *DB) AddPayment(ctx context.Context, orderID int64, method string, amountCents, cashGivenCents int64) error {
-	if !slices.Contains(PaymentMethods, method) || amountCents < 0 {
+// people is how many split the bill; it is stored on the order so the next part starts from it.
+func (d *DB) AddPayment(ctx context.Context, orderID int64, method string, amountCents, cashGivenCents, people int64) error {
+	if !slices.Contains(PaymentMethods, method) || amountCents < 0 || people < 1 {
 		return ErrInvalid
 	}
 	var cash any
@@ -65,6 +66,10 @@ func (d *DB) AddPayment(ctx context.Context, orderID int64, method string, amoun
 		}
 		_, err = tx.ExecContext(ctx, `INSERT INTO order_payments (order_id, method, amount_cents, cash_given_cents, paid_at)
 			VALUES (?, ?, ?, ?, ?)`, orderID, method, amountCents, cash, now())
+		if err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `UPDATE orders SET split_people = ? WHERE id = ?`, people, orderID)
 		return err
 	})
 }

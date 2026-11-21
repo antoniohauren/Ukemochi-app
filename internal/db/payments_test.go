@@ -29,35 +29,35 @@ func TestSplitPayment(t *testing.T) {
 		{"over the total", "pix", 3001, 0, ErrOverpaid},
 		{"cash short of the part", "dinheiro", 1000, 999, ErrCashShort},
 	} {
-		if err := d.AddPayment(ctx, id, tc.method, tc.amount, tc.cash); !errors.Is(err, tc.want) {
+		if err := d.AddPayment(ctx, id, tc.method, tc.amount, tc.cash, 1); !errors.Is(err, tc.want) {
 			t.Errorf("%s: %v, want %v", tc.name, err, tc.want)
 		}
 	}
-	if err := d.AddPayment(ctx, 999, "pix", 100, 0); !errors.Is(err, ErrNotFound) {
+	if err := d.AddPayment(ctx, 999, "pix", 100, 0, 1); !errors.Is(err, ErrNotFound) {
 		t.Errorf("missing order: %v", err)
 	}
 
 	// Three people split R$ 30,00: R$ 10,00 by PIX, R$ 10,00 in cash (R$ 20,00 given), the rest by card.
-	if err := d.AddPayment(ctx, id, "pix", EqualShare(3000, 3), 0); err != nil {
+	if err := d.AddPayment(ctx, id, "pix", EqualShare(3000, 3), 0, 1); err != nil {
 		t.Fatal(err)
 	}
-	if err := d.AddPayment(ctx, id, "dinheiro", 1000, 2000); err != nil {
+	if err := d.AddPayment(ctx, id, "dinheiro", 1000, 2000, 1); err != nil {
 		t.Fatal(err)
 	}
 	o, _ := d.GetOrder(ctx, id)
 	if o.PaidCents != 2000 || o.PaymentCount != 2 || o.RemainingCents() != 1000 || o.Paid() {
 		t.Fatalf("after two parts: paid %d, count %d", o.PaidCents, o.PaymentCount)
 	}
-	if err := d.AddPayment(ctx, id, "credito", 1001, 0); !errors.Is(err, ErrOverpaid) {
+	if err := d.AddPayment(ctx, id, "credito", 1001, 0, 1); !errors.Is(err, ErrOverpaid) {
 		t.Fatalf("over what is left: %v", err)
 	}
-	if err := d.AddPayment(ctx, id, "credito", 1000, 0); err != nil {
+	if err := d.AddPayment(ctx, id, "credito", 1000, 0, 1); err != nil {
 		t.Fatal(err)
 	}
 	if o, _ = d.GetOrder(ctx, id); !o.Paid() || len(o.Payments) != 3 || o.Payments[1].CashGivenCents != 2000 {
 		t.Fatalf("paid order = %+v", o)
 	}
-	if err := d.AddPayment(ctx, id, "pix", 1, 0); !errors.Is(err, ErrOverpaid) {
+	if err := d.AddPayment(ctx, id, "pix", 1, 0, 1); !errors.Is(err, ErrOverpaid) {
 		t.Fatalf("pay a paid order: %v", err)
 	}
 
@@ -75,10 +75,10 @@ func TestSplitPayment(t *testing.T) {
 
 	// A free order is settled by one zero part.
 	free := newOrder(t, d, ConsumeLocal)
-	if err := d.AddPayment(ctx, free, "pix", 0, 0); err != nil {
+	if err := d.AddPayment(ctx, free, "pix", 0, 0, 1); err != nil {
 		t.Fatalf("free order: %v", err)
 	}
-	if err := d.AddPayment(ctx, free, "pix", 0, 0); !errors.Is(err, ErrInvalid) {
+	if err := d.AddPayment(ctx, free, "pix", 0, 0, 1); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("second zero part: %v", err)
 	}
 }

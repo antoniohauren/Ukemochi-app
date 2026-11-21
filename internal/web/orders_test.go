@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -323,7 +324,7 @@ func TestAddItemSteps(t *testing.T) {
 		}
 	}
 	rec := do(h, "POST", "/pedidos/1/itens", url.Values{"produto": {itoa(prod)}, "qty": {"3"}}, true)
-	if rec.Code != http.StatusOK || rec.Header().Get("HX-Trigger") != "item-added" {
+	if rec.Code != http.StatusOK || rec.Header().Get("HX-Trigger") != "item-added-keep" {
 		t.Fatalf("add qty: %d %v", rec.Code, rec.Header())
 	}
 	o, _ := s.DB.GetOrder(ctx, 1)
@@ -335,5 +336,131 @@ func TestAddItemSteps(t *testing.T) {
 	do(h, "POST", "/pedidos/1/status", url.Values{"para": {"cozinha"}}, false)
 	if rec := do(h, "GET", "/pedidos/1/adicionar", nil, false); rec.Code != http.StatusSeeOther {
 		t.Errorf("not open: code %d", rec.Code)
+	}
+}
+
+// hxDo is do with htmx headers and the element htmx targets.
+func hxDo(h http.Handler, method, target string, form url.Values, hxTarget string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(method, target, strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("HX-Request", "true")
+	req.Header.Set("HX-Target", hxTarget)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
+func TestEmptyOrderToKitchenHX(t *testing.T) {
+	s, h, _ := dbServer(t)
+	do(h, "POST", "/pedidos", newOrderForm("Maria"), false)
+	rec := hxDo(h, "POST", "/pedidos/1/status", url.Values{"para": {"cozinha"}}, "acoes")
+	if b := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(b, `id="acoes-erro"`) || !strings.Contains(b, "Adicione itens") {
+		t.Fatalf("code %d: %s", rec.Code, b)
+	}
+	if o, _ := s.DB.GetOrder(context.Background(), 1); o.Status != db.StatusOpen {
+		t.Fatalf("status changed to %s", o.Status)
+	}
+	b := do(h, "GET", "/pedidos/1", nil, false).Body.String()
+	if !regexp.MustCompile(`<button[^>]*disabled[^>]*>\s*Enviar à cozinha`).MatchString(b) || !strings.Contains(b, "Adicione itens para enviar.") {
+		t.Error("Enviar à cozinha should be disabled with a hint on an empty order")
+	}
+}
+
+func TestRemoveButtonAtQtyOne(t *testing.T) {
+	s, h, prod := dbServer(t)
+	id := orderWith(t, s, prod, 1)
+	b := do(h, "GET", orderURL(id), nil, false).Body.String()
+	if !strings.Contains(b, `aria-label="Remover Hot roll"`) || !strings.Contains(b, `hx-confirm="Remover Hot roll?"`) || strings.Contains(b, "Diminuir Hot roll") {
+		t.Error("qty 1 should show the remove button instead of minus")
+	}
+	o, _ := s.DB.GetOrder(context.Background(), id)
+	line := orderURL(id) + "/itens/" + itoa(o.Items[0].ID)
+	do(h, "PATCH", line, url.Values{"qty": {"2"}}, true)
+	b = do(h, "GET", orderURL(id), nil, false).Body.String()
+	if strings.Contains(b, `aria-label="Remover Hot roll"`) || !strings.Contains(b, "Diminuir Hot roll") {
+		t.Error("qty 2 should show minus, not remove")
+	}
+	// The server still removes the line at qty 0.
+	do(h, "PATCH", line, url.Values{"qty": {"0"}}, true)
+	if o, _ := s.DB.GetOrder(context.Background(), id); len(o.Items) != 0 {
+		t.Fatalf("qty 0 kept the line: %+v", o.Items)
+	}
+}
+
+func TestItemNote(t *testing.T) {
+	s, h, prod := dbServer(t)
+	ctx := context.Background()
+	id := orderWith(t, s, prod, 2)
+	o, _ := s.DB.GetOrder(ctx, id)
+	line := orderURL(id) + "/itens/" + itoa(o.Items[0].ID)
+	note := func() string { o, _ := s.DB.GetOrder(ctx, id); return o.Items[0].Note }
+
+	if rec := do(h, "PATCH", line, url.Values{"nota": {"  sem cebolinha "}}, true); rec.Code != http.StatusOK || note() != "sem cebolinha" {
+		t.Fatalf("set: %d %q", rec.Code, note())
+	}
+	if o, _ := s.DB.GetOrder(ctx, id); o.Items[0].Qty != 2 {
+		t.Fatalf("note without qty changed qty to %d", o.Items[0].Qty)
+	}
+	o, _ = s.DB.GetOrder(ctx, id)
+	if txt := ticketText(o, false); !strings.Contains(txt, "sem cebolinha") {
+		t.Errorf("ticket lacks the note:\n%s", txt)
+	}
+	if msg, _ := orderMessage(o, msgConfirm); !strings.Contains(msg, "sem cebolinha") {
+		t.Errorf("confirmation lacks the note:\n%s", msg)
+	}
+	if rec := hxDo(h, "PATCH", line, url.Values{"nota": {strings.Repeat("é", 101)}}, "pedido-itens"); !strings.Contains(rec.Body.String(), "muito longa") || note() != "sem cebolinha" {
+		t.Errorf("too long: %s", rec.Body)
+	}
+	if do(h, "PATCH", line, url.Values{"nota": {""}}, true); note() != "" {
+		t.Errorf("clear: %q", note())
+	}
+	if err := s.DB.SetStatus(ctx, id, db.StatusKitchen); err != nil {
+		t.Fatal(err)
+	}
+	if rec := do(h, "POST", line, url.Values{"nota": {"x"}}, false); rec.Code != http.StatusConflict || note() != "" {
+		t.Errorf("not aberto: %d %q", rec.Code, note())
+	}
+}
+
+func TestOrderListPaymentChipAndRefresh(t *testing.T) {
+	s, h, prod := dbServer(t)
+	ctx := context.Background()
+	id := orderWith(t, s, prod, 1)
+	for _, st := range []string{db.StatusKitchen, db.StatusReady} {
+		if err := s.DB.SetStatus(ctx, id, st); err != nil {
+			t.Fatal(err)
+		}
+	}
+	b := do(h, "GET", "/", nil, false).Body.String()
+	if !strings.Contains(b, "Não pago") || !strings.Contains(b, `id="lista"`) || !strings.Contains(b, `hx-select="#lista"`) {
+		t.Fatalf("list: %s", b)
+	}
+	if err := s.DB.AddPayment(ctx, id, "pix", 500, 0, 1); err != nil {
+		t.Fatal(err)
+	}
+	if b := do(h, "GET", "/", nil, false).Body.String(); !strings.Contains(b, "Falta R$ 10,00") {
+		t.Error("part paid should show what is left")
+	}
+}
+
+func TestNewOrderFieldError(t *testing.T) {
+	_, h, _ := dbServer(t)
+	b := do(h, "POST", "/pedidos", url.Values{"canal": {"whatsapp"}, "consumo": {"entrega"}, "nome": {"Maria"}}, false).Body.String()
+	if !regexp.MustCompile(`name="endereco"[^>]*aria-invalid="true"[^>]*autofocus`).MatchString(b) ||
+		!regexp.MustCompile(`aria-invalid="true"[^>]*>\s*<p id="endereco-erro"[^>]*>Informe o endereço`).MatchString(b) {
+		t.Errorf("address error not next to the field: %s", b)
+	}
+	b = do(h, "GET", "/pedidos/novo", nil, false).Body.String()
+	if !strings.Contains(b, `title="4 dígitos, ex.: 1234"`) || strings.Contains(b, `aria-invalid="true"`) {
+		t.Error("new order form: phone title missing or a field marked invalid")
+	}
+}
+
+func TestAddItemPageTitle(t *testing.T) {
+	s, h, prod := dbServer(t)
+	id := orderWith(t, s, prod, 1)
+	b := do(h, "GET", orderURL(id)+"/adicionar?produto="+itoa(prod), nil, false).Body.String()
+	if !regexp.MustCompile(`<h1 id="add-sheet-titulo"[^>]*>Hot roll</h1>`).MatchString(b) {
+		t.Errorf("header lacks the product name: %s", b)
 	}
 }

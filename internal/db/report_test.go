@@ -34,7 +34,7 @@ func payAll(t *testing.T, d *DB, id int64, method string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := d.AddPayment(ctx, id, method, o.RemainingCents(), 0); err != nil {
+	if err := d.AddPayment(ctx, id, method, o.RemainingCents(), 0, 1); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -74,7 +74,7 @@ func TestDailyReport(t *testing.T) {
 		t.Fatal(err)
 	}
 	d.AddItem(ctx, split, p, 4, "")
-	if err := d.AddPayment(ctx, split, "pix", 1000, 0); err != nil {
+	if err := d.AddPayment(ctx, split, "pix", 1000, 0, 1); err != nil {
 		t.Fatal(err)
 	}
 	payAll(t, d, split, "dinheiro")

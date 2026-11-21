@@ -53,8 +53,8 @@ func TestMigrateIdempotent(t *testing.T) {
 	}
 	var v int
 	d.QueryRow("PRAGMA user_version").Scan(&v)
-	if v != 3 {
-		t.Fatalf("user_version = %d, want 3", v)
+	if v != 4 {
+		t.Fatalf("user_version = %d, want 4", v)
 	}
 	var fk int
 	d.QueryRow("PRAGMA foreign_keys").Scan(&fk)
@@ -147,7 +147,7 @@ func TestAddItemRefused(t *testing.T) {
 	if err := d.SetItemQty(ctx, other, o.Items[0].ID, 2); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("item of another order: %v", err)
 	}
-	if err := d.AddPayment(ctx, id, "cheque", 100, 0); !errors.Is(err, ErrInvalid) {
+	if err := d.AddPayment(ctx, id, "cheque", 100, 0, 1); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("bad payment method: %v", err)
 	}
 	if err := d.AddItem(ctx, id, 999, 1, ""); !errors.Is(err, ErrNotFound) {
@@ -203,7 +203,7 @@ func TestStatusTransitions(t *testing.T) {
 		if err := d.SetStatus(ctx, id, StatusClosed); !errors.Is(err, ErrUnpaid) {
 			t.Fatalf("closing unpaid: %v", err)
 		}
-		if err := d.AddPayment(ctx, id, "dinheiro", 600, 5000); err != nil {
+		if err := d.AddPayment(ctx, id, "dinheiro", 600, 5000, 1); err != nil {
 			t.Fatal(err)
 		}
 		if err := d.SetStatus(ctx, id, StatusClosed); err != nil {
@@ -232,7 +232,7 @@ func TestStatusTransitions(t *testing.T) {
 		id := order(ConsumeLocal)
 		d.SetStatus(ctx, id, StatusKitchen)
 		d.SetStatus(ctx, id, StatusReady)
-		if err := d.AddPayment(ctx, id, "pix", 100, 0); err != nil {
+		if err := d.AddPayment(ctx, id, "pix", 100, 0, 1); err != nil {
 			t.Fatal(err)
 		}
 		if err := d.SetStatus(ctx, id, StatusClosed); !errors.Is(err, ErrPaidMismatch) {
@@ -247,7 +247,7 @@ func TestStatusTransitions(t *testing.T) {
 		if err := d.SetStatus(ctx, id, StatusOut); !errors.Is(err, ErrBadTransition) {
 			t.Fatalf("saiu for local: %v", err)
 		}
-		d.AddPayment(ctx, id, "credito", 600, 999)
+		d.AddPayment(ctx, id, "credito", 600, 999, 1)
 		if err := d.SetStatus(ctx, id, StatusClosed); err != nil {
 			t.Fatal(err)
 		}

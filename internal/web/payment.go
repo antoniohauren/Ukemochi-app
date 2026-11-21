@@ -77,11 +77,11 @@ func (s *Server) addPayment(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if err := s.DB.AddPayment(r.Context(), o.ID, method, amount, given); err != nil {
+	if err := s.DB.AddPayment(r.Context(), o.ID, method, amount, given, parsePeople(r.PostFormValue("pessoas"))); err != nil {
 		fail(w, r, err)
 		return
 	}
-	s.paymentDone(w, r, o.ID, parsePeople(r.PostFormValue("pessoas")), "Pagamento registrado")
+	s.paymentDone(w, r, o.ID, "Pagamento registrado")
 }
 
 // maxPeople caps the split picker.
@@ -108,12 +108,12 @@ func (s *Server) deletePayment(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, err)
 		return
 	}
-	s.paymentDone(w, r, id, 1, "Pagamento removido")
+	s.paymentDone(w, r, id, "Pagamento removido")
 }
 
 // paymentDone answers a payment change: the sheet stays open for the next part under htmx, with the split
-// picker still on people, otherwise the browser goes back to the order.
-func (s *Server) paymentDone(w http.ResponseWriter, r *http.Request, id, people int64, toast string) {
+// picker still on the order's stored split, otherwise the browser goes back to the order.
+func (s *Server) paymentDone(w http.ResponseWriter, r *http.Request, id int64, toast string) {
 	if !isHX(r) {
 		redirect(w, r, orderURL(id))
 		return
@@ -123,7 +123,7 @@ func (s *Server) paymentDone(w http.ResponseWriter, r *http.Request, id, people 
 		fail(w, r, err)
 		return
 	}
-	render(w, r, http.StatusOK, PaymentUpdate(o, people, toast))
+	render(w, r, http.StatusOK, PaymentUpdate(o, toast))
 }
 
 // change answers the live change line under the cash field: recebido against valor (or all that is left).

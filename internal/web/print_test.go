@@ -124,3 +124,15 @@ func TestPrintToPrinter(t *testing.T) {
 		t.Fatalf("missing order: %d", rec.Code)
 	}
 }
+
+func TestPrintEmptyOrderRefused(t *testing.T) {
+	_, h, _ := dbServer(t)
+	do(h, "POST", "/pedidos", newOrderForm("Maria"), false)
+	if rec := do(h, "POST", "/pedidos/1/imprimir", nil, false); rec.Code != http.StatusUnprocessableEntity {
+		t.Errorf("print empty order: code %d", rec.Code)
+	}
+	b := do(h, "GET", "/pedidos/1", nil, false).Body.String()
+	if !regexp.MustCompile(`<button[^>]*disabled[^>]*>\s*Imprimir ticket`).MatchString(b) {
+		t.Error("Imprimir ticket should be disabled on an empty order")
+	}
+}

@@ -29,6 +29,10 @@ func (s *Server) registerPrint(mux *http.ServeMux) {
 		if !ok {
 			return
 		}
+		if len(o.Items) == 0 {
+			fail(w, r, inputError("Adicione itens antes de imprimir."))
+			return
+		}
 		if s.Print == nil {
 			redirect(w, r, orderURL(o.ID)+"/imprimir")
 			return
