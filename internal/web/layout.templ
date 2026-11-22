@@ -31,6 +31,11 @@ templ Layout(title string) {
 					const t = e.target;
 					if (t.id === "toast" && t.showPopover && t.childElementCount) t.showPopover();
 				});
+				// Safari ignores closedby="any": a tap on a sheet's backdrop hits the dialog itself, so close it here.
+				document.addEventListener("click", (e) => {
+					const d = e.target;
+					if (d instanceof HTMLDialogElement && d.open && d.classList.contains("sheet") && !("closedBy" in d)) d.close();
+				});
 			</script>
 		</head>
 		<body class="min-h-screen bg-surface text-ink">
