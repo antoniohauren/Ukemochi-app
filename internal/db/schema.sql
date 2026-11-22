@@ -108,3 +108,10 @@ CREATE INDEX order_payment_items_item ON order_payment_items(order_item_id);
 -- A line shared by several people (one 1L soda for three) is split into parts when paying by consumption:
 -- order_payment_items.qty then counts parts, qty * split_parts per line.
 ALTER TABLE order_items ADD COLUMN split_parts INTEGER NOT NULL DEFAULT 1 CHECK (split_parts BETWEEN 1 AND 20);
+
+-- migrate: 8
+-- Opening cash per local day (YYYY-MM-DD, America/Sao_Paulo), for the expected cash in the report.
+CREATE TABLE cash_days (
+  day           TEXT PRIMARY KEY,
+  opening_cents INTEGER NOT NULL CHECK (opening_cents >= 0)
+);

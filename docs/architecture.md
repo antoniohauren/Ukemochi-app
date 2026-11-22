@@ -55,6 +55,7 @@ Go 1.22 `http.ServeMux` patterns.
 | `POST /pedidos/{id}/imprimir`       | Print on the Bluetooth printer (falls back to the ticket page) |
 | `GET /admin/login`, `POST /admin/login` | PIN login                           |
 | `GET /admin/relatorio?dia=`         | Daily report                            |
+| `POST /admin/relatorio/caixa`       | Set the day's caixa inicial (opening cash) |
 | `/admin/cardapio/...`               | Menu CRUD                               |
 
 Status transitions are checked on the server. See the rules in [flows](flows.md).
@@ -65,7 +66,7 @@ Status transitions are checked on the server. See the rules in [flows](flows.md)
 - **Order editor:** category tabs, then a product grid. Tap to add. The current order sits in a bottom sheet with quantities, total and actions.
 - **Payment:** a sheet opened from the actions sheet. It lists the parts paid so far and what is left, then method buttons, a **Dividir entre** people picker (− N +, 1 to 20, like the quantity picker) and the amount, which holds one share (all that is left for 1 person). The picker keeps its value between parts. When **Dinheiro** is chosen, a cash field shows the change live. **Voltar** returns to the actions sheet.
 - **Entrega:** a sheet opened from the actions sheet with the address and the **Entrega** / **Consumir no local** buttons. Saving returns to the actions sheet.
-- **Admin report:** one day, with counts and totals per payment method and channel, the top items, and a **Copiar resumo** button.
+- **Admin report:** one day, with counts and totals per payment method and channel, a **Caixa** card (caixa inicial, cash received on closed orders, caixa esperado = the two added), the top items, and a **Copiar resumo** button.
 
 ## Copy to clipboard
 

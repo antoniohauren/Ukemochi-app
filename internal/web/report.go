@@ -14,6 +14,26 @@ const dayLayout = "2006-01-02"
 
 func (s *Server) registerReport(mux *http.ServeMux) {
 	mux.Handle("GET /admin/relatorio", s.requireAdmin(http.HandlerFunc(s.report)))
+	mux.Handle("POST /admin/relatorio/caixa", s.requireAdmin(http.HandlerFunc(s.setOpeningCash)))
+}
+
+// cashBox is the day's drawer: what it opened with and the cash received on closed orders.
+type cashBox struct {
+	OpeningCents  int64
+	ReceivedCents int64
+}
+
+// ExpectedCents is what should be in the drawer: the opening cash plus the cash received.
+func (c cashBox) ExpectedCents() int64 { return c.OpeningCents + c.ReceivedCents }
+
+func newCashBox(opening int64, rep db.Report) cashBox {
+	c := cashBox{OpeningCents: opening}
+	for _, row := range rep.ByPayment {
+		if row.Key == "dinheiro" {
+			c.ReceivedCents = row.TotalCents
+		}
+	}
+	return c
 }
 
 func (s *Server) report(w http.ResponseWriter, r *http.Request) {
@@ -28,7 +48,38 @@ func (s *Server) report(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, err)
 		return
 	}
-	render(w, r, http.StatusOK, ReportPage(day, rep, reportSummary(day, rep)))
+	opening, err := s.DB.OpeningCash(r.Context(), day.Format(dayLayout))
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	cash := newCashBox(opening, rep)
+	render(w, r, http.StatusOK, ReportPage(day, rep, cash, reportSummary(day, rep, cash)))
+}
+
+// setOpeningCash saves one day's caixa inicial and goes back to that day's report. Empty means 0.
+func (s *Server) setOpeningCash(w http.ResponseWriter, r *http.Request) {
+	if err := parseForm(w, r); err != nil {
+		fail(w, r, err)
+		return
+	}
+	day, err := reportDay(r.PostFormValue("dia"), time.Now())
+	if err != nil {
+		fail(w, r, err)
+		return
+	}
+	var cents int64
+	if v := strings.TrimSpace(r.PostFormValue("caixa_inicial")); v != "" {
+		if cents, err = money.Parse(v); err != nil {
+			fail(w, r, inputError("Caixa inicial inválido. Ex.: 200,00"))
+			return
+		}
+	}
+	if err := s.DB.SetOpeningCash(r.Context(), day.Format(dayLayout), cents); err != nil {
+		fail(w, r, err)
+		return
+	}
+	redirect(w, r, "/admin/relatorio?dia="+day.Format(dayLayout))
 }
 
 // reportDay parses dia (YYYY-MM-DD) as local midnight in São Paulo; empty means the day of now.
@@ -51,7 +102,7 @@ func label(labels map[string]string, key string) string {
 }
 
 // reportSummary is the WhatsApp text behind Copiar resumo.
-func reportSummary(day time.Time, rep db.Report) string {
+func reportSummary(day time.Time, rep db.Report, cash cashBox) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "*Resumo %s*\n", day.Format("02/01/2006"))
 	fmt.Fprintf(&b, "Pedidos: %d · Total: %s\n", rep.Orders, money.Format(rep.TotalCents))
@@ -65,6 +116,10 @@ func reportSummary(day time.Time, rep db.Report) string {
 		}
 	}
 	section("Pagamento", rep.ByPayment, paymentLabels)
+	if cash.OpeningCents > 0 || cash.ReceivedCents > 0 {
+		fmt.Fprintf(&b, "\n*Caixa*\nInicial: %s\nDinheiro recebido: %s\nEsperado: %s\n",
+			money.Format(cash.OpeningCents), money.Format(cash.ReceivedCents), money.Format(cash.ExpectedCents()))
+	}
 	section("Canal", rep.ByChannel, channelLabels)
 	if len(rep.TopItems) > 0 {
 		b.WriteString("\n*Mais vendidos*\n")
