@@ -332,8 +332,9 @@ func (s *Server) setStatus(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, err)
 		return
 	}
+	// Only cozinha prints; Marcar como pronto (aberto > pronto) skips the kitchen ticket.
+	// The status already changed, so a print failure falls back to the browser ticket page.
 	if to == db.StatusKitchen {
-		// The status already changed, so a print failure falls back to the browser ticket page.
 		if s.Print == nil {
 			redirect(w, r, orderURL(id)+"/imprimir")
 			return
@@ -463,6 +464,8 @@ func fail(w http.ResponseWriter, r *http.Request, err error) {
 			c = templ.Join(c, sheetError("sheet-error", msg))
 		case "pagamento":
 			c = templ.Join(c, sheetError("pagamento-erro", msg))
+		case "pagamento-entrega":
+			c = templ.Join(c, sheetError("pagamento-entrega-erro", msg))
 		case "acoes":
 			c = templ.Join(c, sheetError("acoes-erro", msg))
 		case "consumo":
@@ -523,8 +526,8 @@ func canChangeConsume(o db.Order) bool {
 }
 
 // statusActions lists the status buttons in display order; only allowed moves are shown.
+// Enviar à cozinha is not here: orderActions gives it a line of its own.
 var statusActions = []struct{ To, Label, Variant string }{
-	{db.StatusKitchen, "Enviar à cozinha", "primary"},
 	{db.StatusReady, "Marcar pronto", "primary"},
 	{db.StatusOut, "Saiu p/ entrega", "primary"},
 	{db.StatusClosed, "Fechar", "primary"},

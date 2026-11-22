@@ -249,3 +249,108 @@ func TestPaymentLastPartTakesRest(t *testing.T) {
 		t.Errorf("remove payment does not ask")
 	}
 }
+
+// The expected payment goes on the ticket next to A PAGAR and never counts as paid.
+func TestExpectedPayment(t *testing.T) {
+	s, h, prod := dbServer(t)
+	id := orderWith(t, s, prod, 2) // R$ 30,00
+	u := orderURL(id) + "/pagamento-previsto"
+	for _, tc := range []struct {
+		name string
+		form url.Values
+		want string
+	}{
+		{"bad method", url.Values{"previsto": {"cheque"}}, "Forma de pagamento prevista inválida"},
+		{"bad note", url.Values{"previsto": {"dinheiro"}, "troco_para": {"abc"}}, "Valor de troco para inválido"},
+		{"note short", url.Values{"previsto": {"dinheiro"}, "troco_para": {"20"}}, "Troco para menor que o valor a pagar (R$ 30,00)"},
+	} {
+		if b := do(h, "POST", u, tc.form, true).Body.String(); !strings.Contains(b, tc.want) {
+			t.Errorf("%s: %s", tc.name, b)
+		}
+	}
+
+	if rec := do(h, "POST", u, url.Values{"previsto": {"dinheiro"}, "troco_para": {"100"}}, true); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Forma prevista salva") {
+		t.Fatalf("save: %d %s", rec.Code, rec.Body)
+	}
+	o, _ := s.DB.GetOrder(context.Background(), id)
+	if o.ExpectedMethod != "dinheiro" || o.ChangeForCents != 10000 || o.PaymentCount != 0 {
+		t.Fatalf("stored: %+v", o)
+	}
+	if b := do(h, "GET", orderURL(id), nil, false).Body.String(); !strings.Contains(b, "Previsto: Dinheiro · troco para R$ 100,00 (levar R$ 70,00)") {
+		t.Error("order panel lacks the expected payment")
+	}
+	txt := ticketText(o)
+	for _, want := range []string{"A PAGAR\nPagar com", "Pagar com               Dinheiro", "Troco para             R$ 100,00", "Levar troco             R$ 70,00"} {
+		if !strings.Contains(txt, want) {
+			t.Errorf("ticket lacks %q:\n%s", want, txt)
+		}
+	}
+
+	// Another method drops the note; an empty one clears it all.
+	do(h, "POST", u, url.Values{"previsto": {"credito"}, "troco_para": {"100"}}, true)
+	if o, _ := s.DB.GetOrder(context.Background(), id); o.ExpectedMethod != "credito" || o.ChangeForCents != 0 {
+		t.Fatalf("credito: %+v", o)
+	}
+	do(h, "POST", u, url.Values{"previsto": {""}}, true)
+	if o, _ := s.DB.GetOrder(context.Background(), id); o.ExpectedMethod != "" || strings.Contains(ticketText(o), "Pagar com") {
+		t.Fatalf("cleared: %+v", o)
+	}
+
+	// Once paid, the ticket has nothing left to collect.
+	do(h, "POST", u, url.Values{"previsto": {"pix"}}, true)
+	do(h, "POST", orderURL(id)+"/pagamento", url.Values{"metodo": {"pix"}}, true)
+	if o, _ := s.DB.GetOrder(context.Background(), id); strings.Contains(ticketText(o), "Pagar com") {
+		t.Errorf("paid ticket still asks to collect:\n%s", ticketText(o))
+	}
+	if rec := do(h, "POST", orderURL(99)+"/pagamento-previsto", url.Values{"previsto": {"pix"}}, false); rec.Code != http.StatusNotFound {
+		t.Errorf("missing order: %d", rec.Code)
+	}
+}
+
+// A delivery with something left to pay offers Paga na entrega, its own sheet for the expected payment;
+// a save there swaps that sheet and goes back to the actions sheet. A local order keeps Forma prevista.
+func TestPayOnDeliverySheet(t *testing.T) {
+	s, h, prod := dbServer(t)
+	do(h, "POST", "/pedidos", newOrderForm("Maria"), false)
+	if err := s.DB.AddItem(context.Background(), 1, prod, 1, ""); err != nil {
+		t.Fatal(err)
+	}
+	b := do(h, "GET", orderURL(1), nil, false).Body.String()
+	for _, want := range []string{"Já pagou", "Paga na entrega", `id="entrega-pagamento-sheet"`, `id="pagamento-entrega"`, "entrega-pagamento-sheet&#39;).showModal()"} {
+		if !strings.Contains(b, want) {
+			t.Errorf("delivery order lacks %q", want)
+		}
+	}
+	if strings.Contains(b, "Forma prevista (ainda não pago)") {
+		t.Error("a delivery should set the expected payment in its own sheet, not the payment sheet")
+	}
+
+	req := httptest.NewRequest("POST", orderURL(1)+"/pagamento-previsto", strings.NewReader(url.Values{"previsto": {"dinheiro"}, "troco_para": {"abc"}}.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("HX-Request", "true")
+	req.Header.Set("HX-Target", "pagamento-entrega")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if !strings.Contains(rec.Body.String(), `id="pagamento-entrega-erro"`) {
+		t.Errorf("error should show inside the sheet: %s", rec.Body)
+	}
+
+	req = httptest.NewRequest("POST", orderURL(1)+"/pagamento-previsto", strings.NewReader(url.Values{"previsto": {"pix"}}.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("HX-Request", "true")
+	req.Header.Set("HX-Target", "pagamento-entrega")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if b := rec.Body.String(); rec.Header().Get("HX-Trigger") != "previsto-salvo" || !strings.HasPrefix(b, `<div id="pagamento-entrega"`) || !strings.Contains(b, "Pagamento na entrega salvo") {
+		t.Errorf("save: %q %s", rec.Header().Get("HX-Trigger"), b)
+	}
+	if b := do(h, "GET", orderURL(1), nil, false).Body.String(); !strings.Contains(b, "Paga na entrega: PIX") {
+		t.Error("order panel should say how the client pays on delivery")
+	}
+
+	id := orderWith(t, s, prod, 1)
+	b = do(h, "GET", orderURL(id), nil, false).Body.String()
+	if strings.Contains(b, "Já pagou") || !strings.Contains(b, "Forma prevista (ainda não pago)") {
+		t.Error("a local order should keep Forma prevista in the payment sheet")
+	}
+}

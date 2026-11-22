@@ -86,3 +86,9 @@ ALTER TABLE orders DROP COLUMN cash_given_cents;
 -- migrate: 4
 -- The bill split is kept on the order, so the payment sheet reopens on the same number of people.
 ALTER TABLE orders ADD COLUMN split_people INTEGER NOT NULL DEFAULT 1;
+
+-- migrate: 5
+-- How an unpaid order is expected to be paid, printed on the ticket so the courier takes the card
+-- machine or change. change_for_cents is the note the client pays with, for dinheiro only.
+ALTER TABLE orders ADD COLUMN expected_method TEXT CHECK (expected_method IN ('pix','credito','debito','dinheiro'));
+ALTER TABLE orders ADD COLUMN change_for_cents INTEGER CHECK (change_for_cents > 0);

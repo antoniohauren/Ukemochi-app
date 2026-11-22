@@ -43,8 +43,8 @@ templ OrderListPage(orders []db.Order) {
 									</div>
 									<div class="mt-2 flex items-center justify-between gap-3">
 										<p class="text-lg font-bold tabular-nums">{ money.Format(o.TotalCents) }</p>
-										{{ l, paid := payLabel(o) }}
-										<span class={ "inline-flex items-center rounded-full px-2 py-0.5 text-sm font-medium tabular-nums ring-1 ring-inset", statusColors[payChipStatus(paid)] }>{ l }</span>
+										{{ l, colors := payLabel(o) }}
+										<span class={ "inline-flex items-center rounded-full px-2 py-0.5 text-sm font-medium tabular-nums ring-1 ring-inset", statusColors[colors] }>{ l }</span>
 									</div>
 								}
 							</a>
@@ -61,24 +61,19 @@ templ OrderListPage(orders []db.Order) {
 	}
 }
 
-// payLabel is the home card's payment chip, in every status: "Não pago" (red) until paid, then "Pago" (paid true, green).
-// A part payment shows what is left.
-func payLabel(o db.Order) (label string, paid bool) {
+// payLabel is the home card's payment chip, in every status, with the status whose chip colors it borrows:
+// "Não pago" (red, cancelado) until paid, then "Pago" (green, pronto). A part payment shows what is left (red).
+// A delivery with nothing paid and a Paga na entrega method set shows "Entrega" (amber, cozinha): the courier collects it.
+func payLabel(o db.Order) (label, colors string) {
 	switch {
 	case o.Paid():
-		return "Pago", true
+		return "Pago", db.StatusReady
 	case o.PaymentCount > 0 && o.RemainingCents() > 0:
-		return "Falta " + money.Format(o.RemainingCents()), false
+		return "Falta " + money.Format(o.RemainingCents()), db.StatusCancelled
+	case payOnDelivery(o) && o.ExpectedMethod != "":
+		return "Entrega", db.StatusKitchen
 	}
-	return "Não pago", false
-}
-
-// payChipStatus borrows a status chip's colors: green (pronto) when paid, red (cancelado) when not.
-func payChipStatus(paid bool) string {
-	if paid {
-		return db.StatusReady
-	}
-	return db.StatusCancelled
+	return "Não pago", db.StatusCancelled
 }
 
 func optionClass() string {
@@ -196,6 +191,10 @@ templ OrderEditorPage(o db.Order, menu []db.Category) {
 				@BottomSheet("pagamento-sheet", "Pagamento") {
 					@PaymentPanel(o, false)
 				}
+				// Always there while payable, so out-of-band refreshes find it after a consume change.
+				@BottomSheet("entrega-pagamento-sheet", "Pagamento na entrega") {
+					@DeliveryPaymentPanel(o, false)
+				}
 			}
 			if canChangeConsume(o) {
 				@BottomSheet("consumo-sheet", "Entrega") {
@@ -247,6 +246,11 @@ templ ConsumeUpdate(o db.Order) {
 	@ConsumePanel(o)
 	@orderActions(o, true)
 	@orderHeader(o, true)
+	// The payment sheets differ between entrega and local.
+	if canPay(o) {
+		@PaymentPanel(o, true)
+		@DeliveryPaymentPanel(o, true)
+	}
 }
 
 // PaymentUpdate answers an htmx payment change: the payment sheet, which stays open for the next part,
@@ -254,9 +258,19 @@ templ ConsumeUpdate(o db.Order) {
 templ PaymentUpdate(o db.Order, toast string) {
 	@PaymentPanel(o, false)
 	@orderActions(o, true)
+	@DeliveryPaymentPanel(o, true) // what is left to collect follows the payment
 	if toast != "" {
 		@Toast("ok", toast)
 	}
+}
+
+// DeliveryPaymentUpdate answers a save from the Pagamento na entrega sheet: that sheet, then the payment
+// and actions sheets and a toast out of band. The handler's HX-Trigger (previsto-salvo) goes back to the actions sheet.
+templ DeliveryPaymentUpdate(o db.Order, toast string) {
+	@DeliveryPaymentPanel(o, false)
+	@PaymentPanel(o, true)
+	@orderActions(o, true)
+	@Toast("ok", toast)
 }
 
 // consumeSummary shows how the order is consumed in the order panel, with a button that opens the delivery sheet.
@@ -281,7 +295,8 @@ templ consumeSummary(o db.Order) {
 	</section>
 }
 
-// ConsumePanel is the body of the delivery sheet: the address and the entrega / local choice.
+// ConsumePanel is the body of the delivery sheet: the entrega / local choice, the address while Entrega
+// is checked, and Salvar. Nothing is saved until Salvar.
 templ ConsumePanel(o db.Order) {
 	<div id="consumo" class="space-y-3">
 		<p id="consumo-erro" role="alert" class="empty:hidden font-medium text-danger"></p>
@@ -291,19 +306,33 @@ templ ConsumePanel(o db.Order) {
 			hx-post={ orderURL(o.ID) + "/consumo" }
 			hx-target="#consumo"
 			hx-swap="outerHTML"
+			hx-disabled-elt="find button[type=submit]"
 			hx-on:consumo-salvo="document.getElementById('consumo-sheet').close(); document.getElementById('acoes-sheet').showModal()"
-			class="grid grid-cols-2 gap-2"
+			class="group space-y-3"
 		>
-			<label class="col-span-2 block">
-				<span class="mb-1 block text-sm font-medium text-ink-muted">Endereço (para entrega)</span>
+			<fieldset>
+				<legend class="mb-1 text-sm font-medium text-ink-muted">Consumo</legend>
+				<div class="grid grid-cols-2 gap-2">
+					<label class={ optionClass() }>
+						<input type="radio" name="consumo" value={ db.ConsumeDelivery } id="alterar-consumo-entrega" class="sr-only" checked?={ o.Consume == db.ConsumeDelivery }/>
+						Entrega
+					</label>
+					<label class={ optionClass() }>
+						<input type="radio" name="consumo" value={ db.ConsumeLocal } class="sr-only" checked?={ o.Consume == db.ConsumeLocal }/>
+						Consumir no local
+					</label>
+				</div>
+			</fieldset>
+			// Shown only while Entrega is checked; the server requires it then.
+			<label class="hidden group-has-[#alterar-consumo-entrega:checked]:block">
+				<span class="mb-1 block text-sm font-medium text-ink-muted">Endereço de entrega</span>
 				<input type="text" name="endereco" value={ o.Address } maxlength="120" autocomplete="off" class={ fieldClass() }/>
 			</label>
-			@Button(selectedVariant(o.Consume == db.ConsumeDelivery), templ.Attributes{"type": "submit", "name": "consumo", "value": db.ConsumeDelivery}) {
-				Entrega
-			}
-			@Button(selectedVariant(o.Consume == db.ConsumeLocal), templ.Attributes{"type": "submit", "name": "consumo", "value": db.ConsumeLocal}) {
-				Consumir no local
-			}
+			<div class="grid">
+				@Button("primary", templ.Attributes{"type": "submit"}) {
+					Salvar
+				}
+			</div>
 		</form>
 		@sheetBack("consumo-sheet", false)
 	</div>
@@ -350,6 +379,7 @@ templ ItemsUpdate(o db.Order, toast string) {
 	@orderHeader(o, true) // the status may have gone back to aberto
 	@orderActions(o, true)
 	@PaymentPanel(o, true)
+	@DeliveryPaymentPanel(o, true)
 	if toast != "" {
 		@Toast("ok", toast)
 	}
@@ -476,10 +506,18 @@ templ orderActions(o db.Order, oob bool) {
 				}
 			</div>
 		}
-		// The next step (primary) shares a line with print; reopen and cancel go below.
+		// Enviar à cozinha takes its own line; the next step shares a line with print: from aberto that is
+		// Marcar como pronto (no kitchen ticket), else the primary one. Reopen and cancel go below.
+		{{ open := o.Status == db.StatusOpen }}
+		if db.CanTransition(o.Status, db.StatusKitchen, o.Consume) {
+			@statusForm(o, db.StatusKitchen, "Enviar à cozinha", "primary")
+		}
 		<div class="grid auto-cols-fr grid-flow-col items-start gap-2">
+			if open && db.CanTransition(o.Status, db.StatusReady, o.Consume) {
+				@statusForm(o, db.StatusReady, "Marcar como pronto", "secondary")
+			}
 			for _, a := range statusActions {
-				if a.Variant == "primary" && db.CanTransition(o.Status, a.To, o.Consume) {
+				if a.Variant == "primary" && !open && db.CanTransition(o.Status, a.To, o.Consume) {
 					@statusForm(o, a.To, a.Label, a.Variant)
 				}
 			}
@@ -499,10 +537,10 @@ templ orderActions(o db.Order, oob bool) {
 }
 
 // statusForm is one status button. Fechar stays disabled until the order is paid, and
-// Enviar à cozinha until it has items. Under htmx an error shows in #acoes-erro and success redirects.
+// Enviar à cozinha and Marcar como pronto until it has items. Under htmx an error shows in #acoes-erro and success redirects.
 templ statusForm(o db.Order, to, label, variant string) {
 	{{ unpaid := to == db.StatusClosed && !o.Paid() }}
-	{{ empty := to == db.StatusKitchen && len(o.Items) == 0 }}
+	{{ empty := (to == db.StatusKitchen || o.Status == db.StatusOpen && to == db.StatusReady) && len(o.Items) == 0 }}
 	<form
 		method="post"
 		action={ orderURL(o.ID) + "/status" }

@@ -100,3 +100,32 @@ func EqualShare(total, n int64) int64 {
 	}
 	return (total + n - 1) / n
 }
+
+// SetExpectedPayment records how the client will pay what is left, at any status except fechado and
+// cancelado. An empty method clears it. changeForCents is kept only for dinheiro, and only when above 0.
+func (d *DB) SetExpectedPayment(ctx context.Context, orderID int64, method string, changeForCents int64) error {
+	if method != "" && !slices.Contains(PaymentMethods, method) || changeForCents < 0 {
+		return ErrInvalid
+	}
+	var m, change any
+	if method != "" {
+		m = method
+	}
+	if method == "dinheiro" && changeForCents > 0 {
+		change = changeForCents
+	}
+	return d.tx(ctx, func(tx *sql.Tx) error {
+		var status string
+		err := tx.QueryRowContext(ctx, `SELECT status FROM orders WHERE id = ?`, orderID).Scan(&status)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		if status == StatusClosed || status == StatusCancelled {
+			return ErrBadTransition
+		}
+		return execOne(ctx, tx, `UPDATE orders SET expected_method = ?, change_for_cents = ? WHERE id = ?`, m, change, orderID)
+	})
+}

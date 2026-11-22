@@ -54,11 +54,15 @@ type Order struct {
 	CreatedAt    string
 	ClosedAt     string
 	TotalCents   int64
-	PaidCents    int64       // sum of the payment parts
-	PaymentCount int64       // number of payment parts
-	SplitPeople  int64       // how many people split the bill, kept from the last payment part
-	Items        []OrderItem // filled by GetOrder only
-	Payments     []Payment   // filled by GetOrder only, oldest first
+	PaidCents    int64 // sum of the payment parts
+	PaymentCount int64 // number of payment parts
+	SplitPeople  int64 // how many people split the bill, kept from the last payment part
+	// ExpectedMethod is how the client will pay what is left, empty when unknown. ChangeForCents is the
+	// note they pay with, set only for dinheiro; 0 when not given.
+	ExpectedMethod string
+	ChangeForCents int64
+	Items          []OrderItem // filled by GetOrder only
+	Payments       []Payment   // filled by GetOrder only, oldest first
 }
 
 // RemainingCents is what is still to pay; negative when the parts add up to more than the total.
@@ -91,6 +95,7 @@ type OrderItem struct {
 func CanTransition(from, to, consume string) bool {
 	switch from + ">" + to {
 	case "aberto>cozinha", "cozinha>pronto", "saiu>fechado",
+		"aberto>pronto", // Marcar como pronto: made without a kitchen ticket
 		"aberto>cancelado", "cozinha>cancelado", "pronto>cancelado",
 		"saiu>cancelado",                     // client cancelled at the last minute or was not home
 		"fechado>aberto", "cancelado>aberto": // reopen at any time
@@ -126,11 +131,13 @@ const orderCols = `o.id, o.channel, o.consume, o.client_name, COALESCE(o.phone_l
 	o.notes, o.address, o.created_at, COALESCE(o.closed_at, ''),
 	(SELECT COALESCE(SUM(qty * unit_price_cents), 0) FROM order_items WHERE order_id = o.id),
 	(SELECT COALESCE(SUM(amount_cents), 0) FROM order_payments WHERE order_id = o.id),
-	(SELECT COUNT(*) FROM order_payments WHERE order_id = o.id), o.split_people`
+	(SELECT COUNT(*) FROM order_payments WHERE order_id = o.id), o.split_people,
+	COALESCE(o.expected_method, ''), COALESCE(o.change_for_cents, 0)`
 
 func scanOrder(r interface{ Scan(...any) error }, o *Order) error {
 	return r.Scan(&o.ID, &o.Channel, &o.Consume, &o.ClientName, &o.PhoneLast4, &o.Status,
-		&o.Notes, &o.Address, &o.CreatedAt, &o.ClosedAt, &o.TotalCents, &o.PaidCents, &o.PaymentCount, &o.SplitPeople)
+		&o.Notes, &o.Address, &o.CreatedAt, &o.ClosedAt, &o.TotalCents, &o.PaidCents, &o.PaymentCount, &o.SplitPeople,
+		&o.ExpectedMethod, &o.ChangeForCents)
 }
 
 // GetOrder returns one order with its items and total.
@@ -285,7 +292,7 @@ func (d *DB) SetStatus(ctx context.Context, id int64, to string) error {
 		if !CanTransition(from, to, consume) {
 			return ErrBadTransition
 		}
-		if to == StatusKitchen {
+		if to == StatusKitchen || (from == StatusOpen && to == StatusReady) {
 			var n int
 			if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM order_items WHERE order_id = ?`, id).Scan(&n); err != nil {
 				return err

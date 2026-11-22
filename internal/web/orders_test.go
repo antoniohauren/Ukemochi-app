@@ -207,6 +207,11 @@ func TestConsumeAndSaiu(t *testing.T) {
 	if strings.Count(page, `name="endereco"`) != 1 {
 		t.Error("the address field should only be in the delivery sheet")
 	}
+	// Picking entrega or local saves nothing by itself: the sheet has radios and a Salvar button.
+	if !regexp.MustCompile(`type="radio" name="consumo" value="entrega" id="alterar-consumo-entrega" class="sr-only" checked`).MatchString(page) ||
+		!regexp.MustCompile(`<div id="consumo"(?s:.*?)type="submit">\s*Salvar`).MatchString(page) {
+		t.Error("the delivery sheet should be a choice with a Salvar button")
+	}
 	// With htmx the delivery sheet is swapped in place, and the actions sheet and header follow out of band.
 	rec := do(h, "POST", "/pedidos/1/consumo", url.Values{"consumo": {"local"}}, true)
 	if b := rec.Body.String(); rec.Code != http.StatusOK || rec.Header().Get("HX-Redirect") != "" || rec.Header().Get("HX-Trigger") != "consumo-salvo" || !strings.HasPrefix(b, `<div id="consumo"`) ||
@@ -493,6 +498,19 @@ func TestOrderListPaymentChipAndRefresh(t *testing.T) {
 	}
 	if b := do(h, "GET", "/", nil, false).Body.String(); !regexp.MustCompile(`bg-green-100[^>]*>Pago<`).MatchString(b) || strings.Contains(b, "Não pago") {
 		t.Errorf("paid should show a green Pago: %s", b)
+	}
+
+	// A delivery set to pay on delivery shows an amber Entrega instead of Não pago.
+	do(h, "POST", "/pedidos", newOrderForm("Bia"), false)
+	if err := s.DB.AddItem(ctx, 2, prod, 1, ""); err != nil {
+		t.Fatal(err)
+	}
+	if b := do(h, "GET", "/", nil, false).Body.String(); !strings.Contains(b, ">Não pago<") {
+		t.Error("a delivery with no expected payment should still show Não pago")
+	}
+	do(h, "POST", "/pedidos/2/pagamento-previsto", url.Values{"previsto": {"dinheiro"}}, false)
+	if b := do(h, "GET", "/", nil, false).Body.String(); !regexp.MustCompile(`bg-amber-100[^>]*>Entrega<`).MatchString(b) || strings.Contains(b, ">Não pago<") {
+		t.Errorf("pay on delivery should show an amber Entrega: %s", b)
 	}
 }
 

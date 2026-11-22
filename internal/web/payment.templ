@@ -14,13 +14,32 @@ templ paymentSummary(o db.Order) {
 		<h3 id="pagamento-titulo" class="font-semibold">Pagamento</h3>
 		@paymentList(o, false)
 		@paymentStatus(o)
+		if t := expectedText(o); t != "" {
+			<p class="text-sm">
+				if o.Consume == db.ConsumeDelivery {
+					Paga na entrega: { t }
+				} else {
+					Previsto: { t }
+				}
+			</p>
+		}
 		if canPay(o) {
-			<div class="grid">
+			// A delivery with something left to pay offers Paga na entrega next to the payment button:
+			// it opens its own sheet, where the expected payment printed under A PAGAR is set.
+			{{ onDelivery := payOnDelivery(o) }}
+			<div class={ "grid gap-2", templ.KV("grid-cols-2", onDelivery) }>
 				@Button("secondary", templ.Attributes{"type": "button", "onclick": templ.JSUnsafeFuncCall("this.closest('dialog')?.close(); document.getElementById('pagamento-sheet').showModal()")}) {
-					if o.PaymentCount == 0 {
+					if onDelivery && o.PaymentCount == 0 {
+						Já pagou
+					} else if o.PaymentCount == 0 {
 						Registrar pagamento
 					} else {
 						Alterar pagamento
+					}
+				}
+				if onDelivery {
+					@Button("secondary", templ.Attributes{"type": "button", "onclick": templ.JSUnsafeFuncCall("this.closest('dialog')?.close(); document.getElementById('entrega-pagamento-sheet').showModal()")}) {
+						Paga na entrega
 					}
 				}
 			</div>
@@ -161,8 +180,119 @@ templ PaymentPanel(o db.Order, oob bool) {
 				</div>
 			</form>
 		}
+		// A delivery sets this in its own sheet (DeliveryPaymentPanel).
+		if canPay(o) && o.RemainingCents() > 0 && o.Consume != db.ConsumeDelivery {
+			@expectedForm(o)
+		}
 		@sheetBack("pagamento-sheet", o.Paid())
 	</div>
+}
+
+// expectedForm records how the client will pay what is left, printed on the ticket next to A PAGAR.
+// It opens by itself once a method is set. Troco para shows only while Dinheiro is checked.
+templ expectedForm(o db.Order) {
+	<details open?={ o.ExpectedMethod != "" } class="border-t border-line pt-3">
+		<summary class="flex min-h-12 cursor-pointer items-center font-semibold">Forma prevista (ainda não pago)</summary>
+		<form
+			method="post"
+			action={ orderURL(o.ID) + "/pagamento-previsto" }
+			hx-post={ orderURL(o.ID) + "/pagamento-previsto" }
+			hx-target="#pagamento"
+			hx-swap="outerHTML"
+			hx-on::after-request="document.getElementById('pagamento-erro')?.scrollIntoView({block: 'nearest'})"
+			novalidate
+			class="group space-y-3"
+		>
+			<p class="text-sm text-ink-muted">Sai no ticket junto com A PAGAR. Não conta como pago.</p>
+			<fieldset>
+				<legend class="sr-only">Forma prevista</legend>
+				<div class="grid grid-cols-2 gap-2">
+					for _, m := range db.PaymentMethods {
+						<label class={ optionClass() }>
+							<input type="radio" name="previsto" value={ m } id={ "previsto-" + m } checked?={ o.ExpectedMethod == m } class="sr-only"/>
+							{ paymentLabels[m] }
+						</label>
+					}
+					<label class={ optionClass() + " col-span-2" }>
+						<input type="radio" name="previsto" value="" checked?={ o.ExpectedMethod == "" } class="sr-only"/>
+						Não informado
+					</label>
+				</div>
+			</fieldset>
+			<div class="hidden group-has-[#previsto-dinheiro:checked]:block">
+				@MoneyInput("troco_para", "Troco para (opcional)", changeForValue(o), nil)
+			</div>
+			<div class="grid">
+				@Button("secondary", templ.Attributes{"type": "submit"}) {
+					Salvar forma prevista
+				}
+			</div>
+		</form>
+	</details>
+}
+
+// DeliveryPaymentPanel is the body of the Pagamento na entrega sheet: what the courier collects and how the
+// client will pay it (the expected payment, POST /pedidos/{id}/pagamento-previsto), printed under A PAGAR.
+// It never counts as paid. oob marks it for an htmx out-of-band swap when the total, payment or consume changes.
+templ DeliveryPaymentPanel(o db.Order, oob bool) {
+	<div
+		id="pagamento-entrega"
+		if oob {
+			hx-swap-oob="true"
+		}
+		class="space-y-3"
+	>
+		<p id="pagamento-entrega-erro" role="alert" class="empty:hidden font-medium text-danger"></p>
+		if payOnDelivery(o) {
+			<p class="flex justify-between text-xl font-bold"><span>A cobrar</span><span class="tabular-nums">{ money.Format(o.RemainingCents()) }</span></p>
+			<form
+				method="post"
+				action={ orderURL(o.ID) + "/pagamento-previsto" }
+				hx-post={ orderURL(o.ID) + "/pagamento-previsto" }
+				hx-target="#pagamento-entrega"
+				hx-swap="outerHTML"
+				hx-on:previsto-salvo="document.getElementById('entrega-pagamento-sheet').close(); document.getElementById('acoes-sheet').showModal()"
+				novalidate
+				class="group space-y-3"
+			>
+				<p class="text-sm text-ink-muted">O entregador cobra na entrega.</p>
+				<fieldset>
+					<legend class="mb-1 text-sm font-medium text-ink-muted">Como o cliente vai pagar</legend>
+					<div class="grid grid-cols-2 gap-2">
+						for _, m := range db.PaymentMethods {
+							<label class={ optionClass() }>
+								<input type="radio" name="previsto" value={ m } id={ "entrega-" + m } checked?={ o.ExpectedMethod == m } class="sr-only"/>
+								{ paymentLabels[m] }
+							</label>
+						}
+						<label class={ optionClass() + " col-span-2" }>
+							<input type="radio" name="previsto" value="" checked?={ o.ExpectedMethod == "" } class="sr-only"/>
+							Não informado
+						</label>
+					</div>
+				</fieldset>
+				<div class="hidden group-has-[#entrega-dinheiro:checked]:block">
+					@MoneyInput("troco_para", "Troco para (opcional)", changeForValue(o), nil)
+				</div>
+				<div class="grid">
+					@Button("primary", templ.Attributes{"type": "submit"}) {
+						Salvar
+					}
+				</div>
+			</form>
+		} else {
+			<p class="text-ink-muted">Nada a cobrar na entrega.</p>
+		}
+		@sheetBack("entrega-pagamento-sheet", false)
+	</div>
+}
+
+// changeForValue fills the Troco para field with the stored note, or leaves it empty.
+func changeForValue(o db.Order) string {
+	if o.ChangeForCents <= 0 {
+		return ""
+	}
+	return plainMoney(o.ChangeForCents)
 }
 
 // splitScript drives the people picker: − and + step it, and any change fills the amount with one share.

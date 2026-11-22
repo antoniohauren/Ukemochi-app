@@ -54,8 +54,8 @@ func TestMigrateIdempotent(t *testing.T) {
 	}
 	var v int
 	d.QueryRow("PRAGMA user_version").Scan(&v)
-	if v != 4 {
-		t.Fatalf("user_version = %d, want 4", v)
+	if v != 5 {
+		t.Fatalf("user_version = %d, want 5", v)
 	}
 	var fk int
 	d.QueryRow("PRAGMA foreign_keys").Scan(&fk)
@@ -207,6 +207,19 @@ func TestStatusTransitions(t *testing.T) {
 		if err := d.SetStatus(ctx, newOrder(t, d, ConsumeLocal), StatusKitchen); !errors.Is(err, ErrEmptyOrder) {
 			t.Fatalf("empty to kitchen: %v", err)
 		}
+		if err := d.SetStatus(ctx, newOrder(t, d, ConsumeLocal), StatusReady); !errors.Is(err, ErrEmptyOrder) {
+			t.Fatalf("empty to pronto: %v", err)
+		}
+	})
+
+	t.Run("aberto straight to pronto", func(t *testing.T) {
+		id := order(ConsumeDelivery)
+		if err := d.SetStatus(ctx, id, StatusReady); err != nil {
+			t.Fatalf("aberto>pronto: %v", err)
+		}
+		if err := d.SetStatus(ctx, id, StatusOut); err != nil {
+			t.Fatalf("pronto>saiu: %v", err)
+		}
 	})
 
 	t.Run("delivery full path", func(t *testing.T) {
@@ -280,8 +293,8 @@ func TestStatusTransitions(t *testing.T) {
 
 	t.Run("skips and cancel", func(t *testing.T) {
 		id := order(ConsumeDelivery)
-		if err := d.SetStatus(ctx, id, StatusReady); !errors.Is(err, ErrBadTransition) {
-			t.Fatalf("aberto>pronto: %v", err)
+		if err := d.SetStatus(ctx, id, StatusOut); !errors.Is(err, ErrBadTransition) {
+			t.Fatalf("aberto>saiu: %v", err)
 		}
 		if err := d.SetStatus(ctx, id, "bogus"); !errors.Is(err, ErrBadTransition) {
 			t.Fatalf("bogus status: %v", err)

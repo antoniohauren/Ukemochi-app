@@ -61,6 +61,9 @@ CREATE TABLE orders (
                    CHECK (status IN ('aberto','cozinha','pronto','saiu','fechado','cancelado')),
   notes            TEXT NOT NULL DEFAULT '',
   address          TEXT NOT NULL DEFAULT '',  -- required for entrega (migration 2)
+  split_people     INTEGER NOT NULL DEFAULT 1, -- migration 4
+  expected_method  TEXT CHECK (expected_method IN ('pix','credito','debito','dinheiro')), -- how what is left will be paid (migration 5)
+  change_for_cents INTEGER CHECK (change_for_cents > 0), -- dinheiro only: the note the client pays with (migration 5)
   created_at       TEXT NOT NULL,
   closed_at        TEXT
 );

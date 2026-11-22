@@ -15,6 +15,79 @@ func (s *Server) registerPayment(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /pedidos/{id}/pagamentos/{pagamento}", s.deletePayment)
 	mux.HandleFunc("POST /pedidos/{id}/pagamentos/{pagamento}", s.deletePayment) // form fallback without htmx
 	mux.HandleFunc("GET /pedidos/{id}/troco", s.change)
+	mux.HandleFunc("POST /pedidos/{id}/pagamento-previsto", s.setExpectedPayment)
+}
+
+// setExpectedPayment records how the client will pay what is left, for the ticket. An empty previsto clears it.
+// troco_para is the note a dinheiro client pays with; it must cover what is left.
+func (s *Server) setExpectedPayment(w http.ResponseWriter, r *http.Request) {
+	o, ok := s.loadOrder(w, r)
+	if !ok {
+		return
+	}
+	if err := parseForm(w, r); err != nil {
+		fail(w, r, err)
+		return
+	}
+	if !canPay(o) {
+		fail(w, r, inputError("Pedido fechado ou cancelado: reabra para alterar o pagamento."))
+		return
+	}
+	method := r.PostFormValue("previsto")
+	if method != "" && !slices.Contains(db.PaymentMethods, method) {
+		fail(w, r, inputError("Forma de pagamento prevista inválida."))
+		return
+	}
+	var changeFor int64
+	if v := strings.TrimSpace(r.PostFormValue("troco_para")); method == "dinheiro" && v != "" {
+		var err error
+		if changeFor, err = money.Parse(v); err != nil || changeFor <= 0 {
+			fail(w, r, inputError("Valor de troco para inválido."))
+			return
+		}
+		if rest := o.RemainingCents(); changeFor < rest {
+			fail(w, r, inputError("Troco para menor que o valor a pagar ("+money.Format(rest)+")."))
+			return
+		}
+	}
+	if err := s.DB.SetExpectedPayment(r.Context(), o.ID, method, changeFor); err != nil {
+		fail(w, r, err)
+		return
+	}
+	if isHX(r) && r.Header.Get("HX-Target") == "pagamento-entrega" {
+		// From the Pagamento na entrega sheet: swap it, refresh the rest, and go back to the actions sheet.
+		o, err := s.DB.GetOrder(r.Context(), o.ID)
+		if err != nil {
+			fail(w, r, err)
+			return
+		}
+		w.Header().Set("HX-Trigger", "previsto-salvo")
+		render(w, r, http.StatusOK, DeliveryPaymentUpdate(o, "Pagamento na entrega salvo"))
+		return
+	}
+	s.paymentDone(w, r, o.ID, "Forma prevista salva")
+}
+
+// payOnDelivery reports whether o is a delivery that still has something for the courier to collect.
+func payOnDelivery(o db.Order) bool {
+	return canPay(o) && o.Consume == db.ConsumeDelivery && o.RemainingCents() > 0
+}
+
+// expectedText describes the expected payment of what is left: "Dinheiro · troco para R$ 100,00 (levar R$ 64,00)".
+// It is empty when nothing is left to pay or no method is set.
+func expectedText(o db.Order) string {
+	rest := o.RemainingCents()
+	if rest <= 0 || o.ExpectedMethod == "" {
+		return ""
+	}
+	t := paymentLabels[o.ExpectedMethod]
+	if o.ChangeForCents > 0 {
+		t += " · troco para " + money.Format(o.ChangeForCents)
+		if o.ChangeForCents >= rest {
+			t += " (levar " + money.Format(o.ChangeForCents-rest) + ")"
+		}
+	}
+	return t
 }
 
 // canPay reports whether o may still have its payment recorded or changed (docs/flows.md).

@@ -148,3 +148,38 @@ func TestMigratePayments(t *testing.T) {
 		t.Errorf("order 3 = %+v", o3.Payments)
 	}
 }
+
+func TestSetExpectedPayment(t *testing.T) {
+	ctx := context.Background()
+	d := openTest(t)
+	p := seed(t, d)
+	id := newOrder(t, d, ConsumeDelivery)
+	if err := d.AddItem(ctx, id, p, 1, ""); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		method string
+		change int64
+		want   error
+	}{{"cheque", 0, ErrInvalid}, {"pix", -1, ErrInvalid}} {
+		if err := d.SetExpectedPayment(ctx, id, tc.method, tc.change); !errors.Is(err, tc.want) {
+			t.Errorf("%s %d: %v", tc.method, tc.change, err)
+		}
+	}
+	if err := d.SetExpectedPayment(ctx, 999, "pix", 0); !errors.Is(err, ErrNotFound) {
+		t.Errorf("missing order: %v", err)
+	}
+	// The note is kept for dinheiro only.
+	if err := d.SetExpectedPayment(ctx, id, "pix", 5000); err != nil {
+		t.Fatal(err)
+	}
+	if o, _ := d.GetOrder(ctx, id); o.ExpectedMethod != "pix" || o.ChangeForCents != 0 {
+		t.Errorf("pix: %+v", o)
+	}
+	if _, err := d.ExecContext(ctx, `UPDATE orders SET status = 'cancelado' WHERE id = ?`, id); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.SetExpectedPayment(ctx, id, "dinheiro", 5000); !errors.Is(err, ErrBadTransition) {
+		t.Errorf("cancelled order: %v", err)
+	}
+}

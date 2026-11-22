@@ -15,6 +15,8 @@ aberto -> cozinha -> pronto -> saiu -> fechado
     \         \          +---------\-----+   (consume = local)
      +---------+----------+---------+-> cancelado
 
+aberto -> pronto                (Marcar como pronto: no kitchen ticket)
+
 fechado, cancelado -> aberto   (reopen)
 cozinha, pronto    -> aberto   (an item is added, removed or changed)
 ```
@@ -22,7 +24,7 @@ cozinha, pronto    -> aberto   (an item is added, removed or changed)
 | Status      | Meaning                                  |
 |-------------|------------------------------------------|
 | `aberto`    | Being created or edited                  |
-| `cozinha`   | Sent to the kitchen and ticket printed   |
+| `cozinha`   | Sent to the kitchen (ticket printed)     |
 | `pronto`    | Food is ready                            |
 | `saiu`      | Courier left (delivery only)             |
 | `fechado`   | Finished                                 |
@@ -32,6 +34,8 @@ cozinha, pronto    -> aberto   (an item is added, removed or changed)
 
 - Payment is independent of status. Parts can be added or removed at any status except `fechado` and `cancelado`.
 - The bill can be split: pay all that is left (the default), a typed amount, or an equal share picked with **Dividir entre** (number of people). Each part has its own method. A part can't be more than what is left.
+- While something is left to pay, the payment sheet can record a **Forma prevista** (for a delivery, in its own **Pagamento na entrega** sheet, opened with **Paga na entrega** next to **Já pagou** in the order panel): how the client will pay, and for Dinheiro an optional **Troco para** (the note they pay with, at least what is left). It never counts as paid. The ticket prints it under A PAGAR as `Pagar com`, `Troco para` and `Levar troco` (the change the courier takes).
+- **Marcar como pronto** (next to **Imprimir ticket**, under **Enviar à cozinha**) moves an `aberto` order with items straight to `pronto` without printing the kitchen ticket, for food made without one.
 - A `fechado` or `cancelado` order can be reopened at any time. It goes back to `aberto`, keeps its payment and leaves the daily report until it is closed again.
 - An order can't be closed until its parts add up to the total exactly (none missing, none over after items were removed).
 - `saiu` exists only when `consume = entrega`.

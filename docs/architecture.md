@@ -44,9 +44,10 @@ Go 1.22 `http.ServeMux` patterns.
 | `POST /pedidos/{id}/itens`          | Add item with `qty` (htmx fragment)     |
 | `PATCH /pedidos/{id}/itens/{item}`  | Change qty or note                      |
 | `DELETE /pedidos/{id}/itens/{item}` | Remove item                             |
-| `POST /pedidos/{id}/status`         | Move to the next status                 |
+| `POST /pedidos/{id}/status`         | Move to the next status; `para=cozinha` prints the kitchen ticket |
 | `POST /pedidos/{id}/pagamento`      | Add a payment part: `metodo`, `valor` (empty = all that is left), `recebido` (cash) |
 | `DELETE /pedidos/{id}/pagamentos/{pagamento}` | Remove a payment part (`POST` without htmx) |
+| `POST /pedidos/{id}/pagamento-previsto` | Expected payment of what is left: `previsto` (empty clears), `troco_para` (cash) |
 | `POST /pedidos/{id}/consumo`        | Switch entrega / local, with the address |
 | `GET /pedidos/{id}/troco?valor=&recebido=` | Change calculation (htmx fragment) |
 | `GET /pedidos/{id}/mensagem/{tipo}` | Message text: `confirmacao`, `pronto`, `saiu` |
@@ -84,7 +85,7 @@ body  { width: 48mm; margin: 0 auto; padding: 4mm 0; font: 2.4mm/1.2 monospace; 
 
 `size: 58mm auto` is invalid CSS, so browsers drop it and print on A4. The page instead sets the height to 2.9mm per line plus 10mm (`ticketHeight` in `print.go`), so a saved PDF is one 58mm strip.
 
-58mm paper has about 48mm printable width, or 32 characters in monospace. The ticket shows the order number, time, client name, channel and consume type, items as `qty x printable_name`, notes, total and payment status.
+58mm paper has about 48mm printable width, or 32 characters in monospace. The ticket shows the order number, time, client name, channel and consume type, items as `qty x printable_name`, notes, total and payment status. An unpaid order with a forma prevista adds `Pagar com` and, for cash, `Troco para` and `Levar troco`.
 
 ## PWA
 

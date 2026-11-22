@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/url"
@@ -134,5 +135,31 @@ func TestPrintEmptyOrderRefused(t *testing.T) {
 	b := do(h, "GET", "/pedidos/1", nil, false).Body.String()
 	if !regexp.MustCompile(`<button[^>]*disabled[^>]*>\s*Imprimir ticket`).MatchString(b) {
 		t.Error("Imprimir ticket should be disabled on an empty order")
+	}
+}
+
+// Marcar como pronto moves an aberto order straight to pronto and prints nothing, with or without a printer.
+func TestReadyWithoutKitchen(t *testing.T) {
+	s, h, prod := dbServer(t)
+	for _, printer := range []bool{false, true} {
+		id := orderWith(t, s, prod, 1)
+		if b := do(h, "GET", orderURL(id), nil, false).Body.String(); !regexp.MustCompile(`name="para" value="pronto">\s*<button[^>]*>\s*Marcar como pronto`).MatchString(b) {
+			t.Fatal("an aberto order should offer Marcar como pronto")
+		}
+		var sent int
+		s.Print = nil
+		if printer {
+			s.Print = func(string) error { sent++; return nil }
+		}
+		rec := do(h, "POST", orderURL(id)+"/status", url.Values{"para": {"pronto"}}, false)
+		if rec.Header().Get("Location") != orderURL(id) || sent != 0 {
+			t.Fatalf("printer %v: %q, %d prints", printer, rec.Header().Get("Location"), sent)
+		}
+		if o, _ := s.DB.GetOrder(context.Background(), id); o.Status != db.StatusReady {
+			t.Fatalf("printer %v: status %s", printer, o.Status)
+		}
+	}
+	if b := do(h, "GET", "/pedidos/1", nil, false).Body.String(); strings.Contains(b, "Marcar como pronto") || strings.Contains(b, "Enviar sem imprimir") {
+		t.Error("an order in pronto still offers Marcar como pronto")
 	}
 }
