@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"log"
 	"mime"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -18,6 +19,7 @@ import (
 	"github.com/antoniohauren/ukemochi/internal/btprint"
 	"github.com/antoniohauren/ukemochi/internal/db"
 	"github.com/antoniohauren/ukemochi/internal/seed"
+	"github.com/antoniohauren/ukemochi/internal/tray"
 	"github.com/antoniohauren/ukemochi/internal/web"
 )
 
@@ -50,6 +52,18 @@ func authConfig() (*web.Auth, error) {
 		return nil, errors.New("SESSION_KEY must be at least 32 characters")
 	}
 	return a, nil
+}
+
+// localURL is the address to open in a browser on this machine. A wildcard host means localhost.
+func localURL(addr string) string {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return "http://" + addr
+	}
+	if ip := net.ParseIP(host); host == "" || ip != nil && ip.IsUnspecified() {
+		host = "localhost"
+	}
+	return "http://" + net.JoinHostPort(host, port)
 }
 
 func main() {
@@ -120,6 +134,22 @@ func run() error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	ctx, quit := context.WithCancel(ctx)
+	defer quit()
+
+	// Windows only: an icon to open the app, show the console or quit. Elsewhere it does nothing.
+	icon, _ := fs.ReadFile(static, "icons/icon-192.png")
+	closeTray, err := tray.Start(tray.Options{
+		Tooltip: "Ukemochi - " + addr,
+		URL:     localURL(addr),
+		Icon:    icon,
+		OnQuit:  quit,
+	})
+	if err != nil {
+		log.Printf("tray icon: %v", err)
+	} else {
+		defer closeTray()
+	}
 
 	errCh := make(chan error, 1)
 	go func() {

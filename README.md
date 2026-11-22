@@ -41,7 +41,7 @@ To change the port, set `ADDR` in `.env`, e.g. `ADDR=127.0.0.1:3000`. Use `ADDR=
 | `make seed`        | Load the sample menu into an empty menu (the app does this itself for a new database) |
 | `make build-arm64` | Static build for the Raspberry Pi         |
 | `make build-amd64` | Single `bin/ukemochi-amd64` for Linux x64 |
-| `make build-windows` | Single `bin/ukemochi.exe` for Windows   |
+| `make build-windows` | Single `bin/ukemochi.exe` for Windows, with a tray icon to open, show the console or quit |
 
 ### Environment variables
 

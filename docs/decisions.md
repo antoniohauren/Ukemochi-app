@@ -57,3 +57,11 @@ An order's payment is a list of parts in `order_payments`, each with its own met
 - **Why:** tables often split the bill, by person or by method (part PIX, part cash). One method per order could not record that, and the report would put the whole total under one method.
 - **Rule:** a part can't exceed what is left, and an order closes only when its parts add up to the total exactly. So the report's per-method totals always add up to the day's total.
 - **Trade-off:** a split order counts once under each method it used, so the per-method order counts can add up to more than the number of orders.
+
+## 010: Windows tray icon through raw Win32 calls
+
+On Windows the app adds a notification-area icon (`internal/tray`): **Abrir no navegador** (also a double-click), **Mostrar/Ocultar console** and **Sair**, which shuts down the same way as Ctrl+C. On other systems it does nothing.
+
+- **Why:** on a restaurant PC the app is started by a double-click, so it runs in a console window that is easy to close by mistake and has no way to open the app. The tray lets staff hide the console and open or quit the app from the taskbar.
+- **Rule:** it uses `syscall` with user32, shell32 and kernel32 directly, no tray module (decision 007) and no cgo. The icon is the PWA icon PNG, which Windows reads as icon data.
+- **Trade-off:** the console is only hidden, not removed, because the logs are still useful. **Ocultar console** is shown only when the app owns its console (double-click start), so it never hides a terminal it was started from.
