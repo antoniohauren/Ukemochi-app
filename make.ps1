@@ -62,6 +62,6 @@ switch ($Target) {
     'build' {
         Invoke-Gen
         $env:GOOS = 'windows'; $env:GOARCH = 'amd64'; $env:CGO_ENABLED = '0'
-        Invoke-Native go build -o bin/ukemochi.exe ./cmd/ukemochi
+        Invoke-Native go build -ldflags=-H=windowsgui -o bin/ukemochi.exe ./cmd/ukemochi
     }
 }

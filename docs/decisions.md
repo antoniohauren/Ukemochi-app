@@ -60,8 +60,10 @@ An order's payment is a list of parts in `order_payments`, each with its own met
 
 ## 010: Windows tray icon through raw Win32 calls
 
-On Windows the app adds a notification-area icon (`internal/tray`): **Abrir no navegador** (also a double-click), **Mostrar/Ocultar console** and **Sair**, which shuts down the same way as Ctrl+C. On other systems it does nothing.
+On Windows the app adds a notification-area icon (`internal/tray`): **Abrir no navegador** (also a double-click), **Abrir log** and **Sair**, which shuts down the same way as Ctrl+C. On other systems it does nothing.
 
-- **Why:** on a restaurant PC the app is started by a double-click, so it runs in a console window that is easy to close by mistake and has no way to open the app. The tray lets staff hide the console and open or quit the app from the taskbar.
+The built `ukemochi.exe` is a GUI program (`-ldflags=-H=windowsgui`), so it opens no console window. With no console it has no stderr, so the log goes to `ukemochi.log` beside the exe (or `LOG_PATH`). At startup a log over 5 MB is moved to `ukemochi.log.old`, so the two files stay under about 10 MB.
+
+- **Why:** on a restaurant PC the app is started by a double-click. A console window is easy to close by mistake, which stops the app, and it has no way to open the app. The tray is the only thing on screen.
 - **Rule:** it uses `syscall` with user32, shell32 and kernel32 directly, no tray module (decision 007) and no cgo. The icon is the PWA icon PNG, which Windows reads as icon data.
-- **Trade-off:** the console is only hidden, not removed, because the logs are still useful. **Ocultar console** is shown only when the app owns its console (double-click start), so it never hides a terminal it was started from.
+- **Trade-off:** run from a terminal, the built exe returns at once and prints nothing: read the log file instead. `go run` and `make run` stay console programs. A console build still gets the tray, with **Mostrar/Ocultar console** when it owns its console (double-click start), never hiding a terminal it was started from.

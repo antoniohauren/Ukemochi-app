@@ -73,6 +73,7 @@ const (
 	cmdOpen    = 1
 	cmdConsole = 2
 	cmdQuit    = 3
+	cmdLog     = 4
 )
 
 // notifyIconData is NOTIFYICONDATAW from <shellapi.h>. Go's natural alignment matches the C layout.
@@ -221,7 +222,7 @@ func wndProc(hwnd, message, wparam, lparam uintptr) uintptr {
 	case wmTrayNotify:
 		switch uint32(lparam) {
 		case wmLButtonDbl:
-			openURL()
+			shellOpen(state.opts.URL)
 		case wmRButtonUp:
 			showMenu()
 		}
@@ -259,6 +260,9 @@ func showMenu() {
 	}
 	defer procDestroyMenu.Call(menu)
 	appendItem(menu, cmdOpen, "Abrir no navegador")
+	if state.opts.LogPath != "" {
+		appendItem(menu, cmdLog, "Abrir log")
+	}
 	if state.console != 0 {
 		if consoleVisible() {
 			appendItem(menu, cmdConsole, "Ocultar console")
@@ -283,7 +287,9 @@ func showMenu() {
 func command(cmd uintptr) {
 	switch cmd {
 	case cmdOpen:
-		openURL()
+		shellOpen(state.opts.URL)
+	case cmdLog:
+		shellOpen(state.opts.LogPath)
 	case cmdConsole:
 		if consoleVisible() {
 			procShowWindow.Call(state.console, swHide)
@@ -302,12 +308,13 @@ func appendItem(menu, id uintptr, text string) {
 	procAppendMenuW.Call(menu, mfString, id, uintptr(unsafe.Pointer(utf16(text))))
 }
 
-func openURL() {
-	if state.opts.URL == "" {
+// shellOpen opens a URL or file with its default program (the browser, or Notepad for the log).
+func shellOpen(target string) {
+	if target == "" {
 		return
 	}
 	procShellExecuteW.Call(state.hwnd, uintptr(unsafe.Pointer(utf16("open"))),
-		uintptr(unsafe.Pointer(utf16(state.opts.URL))), 0, 0, swShow)
+		uintptr(unsafe.Pointer(utf16(target))), 0, 0, swShow)
 }
 
 // ownConsole returns the console window if this process is its only user, which is the case when

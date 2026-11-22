@@ -7,5 +7,6 @@ type Options struct {
 	Tooltip string // shown on hover, cut to 127 characters
 	URL     string // opened by "Abrir no navegador" and a double-click
 	Icon    []byte // PNG image; the default application icon is used if empty or invalid
+	LogPath string // opened by "Abrir log"; the item is hidden if empty
 	OnQuit  func() // called once, in its own goroutine, when "Sair" is chosen
 }

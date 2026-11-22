@@ -47,7 +47,7 @@ build-arm64: gen
 	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o bin/ukemochi-arm64 ./cmd/ukemochi
 
 build-windows: gen
-	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o bin/ukemochi.exe ./cmd/ukemochi
+	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags=-H=windowsgui -o bin/ukemochi.exe ./cmd/ukemochi
 
 build-amd64: gen
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o bin/ukemochi-amd64 ./cmd/ukemochi

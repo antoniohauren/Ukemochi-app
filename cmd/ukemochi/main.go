@@ -73,8 +73,18 @@ func main() {
 }
 
 func run() error {
-	if err := loadDotenv(); err != nil {
-		return err
+	// The log is set up even when .env fails, so that error reaches the log file too.
+	dotenvErr := loadDotenv()
+	logFile, err := setupLog()
+	if err != nil {
+		return fmt.Errorf("log file: %w", err)
+	}
+	var logPath string
+	if logFile != nil {
+		logPath = logFile.Name()
+	}
+	if dotenvErr != nil {
+		return dotenvErr
 	}
 	addr := env("ADDR", "127.0.0.1:8080")
 	dbPath := env("DB_PATH", "ukemochi.db")
@@ -143,6 +153,7 @@ func run() error {
 		Tooltip: "Ukemochi - " + addr,
 		URL:     localURL(addr),
 		Icon:    icon,
+		LogPath: logPath,
 		OnQuit:  quit,
 	})
 	if err != nil {
