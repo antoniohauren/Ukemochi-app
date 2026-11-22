@@ -250,10 +250,26 @@ func TestPaymentLastPartTakesRest(t *testing.T) {
 	}
 }
 
-// The expected payment goes on the ticket next to A PAGAR and never counts as paid.
+// The expected payment of a delivery goes on the ticket next to A PAGAR and never counts as paid.
+// An order eaten in pays at the counter, so it has none.
 func TestExpectedPayment(t *testing.T) {
 	s, h, prod := dbServer(t)
-	id := orderWith(t, s, prod, 2) // R$ 30,00
+	ctx := context.Background()
+	local := orderWith(t, s, prod, 2)
+	if b := do(h, "POST", orderURL(local)+"/pagamento-previsto", url.Values{"previsto": {"pix"}}, true).Body.String(); !strings.Contains(b, "Forma prevista só vale para entrega") {
+		t.Errorf("local order took an expected payment: %s", b)
+	}
+	if err := s.DB.SetExpectedPayment(ctx, local, "pix", 0); err == nil {
+		t.Error("db took an expected payment for a local order")
+	}
+
+	id, err := s.DB.CreateOrder(ctx, db.NewOrder{Channel: "whatsapp", Consume: db.ConsumeDelivery, ClientName: "Bia", Address: "Rua A, 1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DB.AddItem(ctx, id, prod, 2, ""); err != nil { // R$ 30,00
+		t.Fatal(err)
+	}
 	u := orderURL(id) + "/pagamento-previsto"
 	for _, tc := range []struct {
 		name string
@@ -276,7 +292,7 @@ func TestExpectedPayment(t *testing.T) {
 	if o.ExpectedMethod != "dinheiro" || o.ChangeForCents != 10000 || o.PaymentCount != 0 {
 		t.Fatalf("stored: %+v", o)
 	}
-	if b := do(h, "GET", orderURL(id), nil, false).Body.String(); !strings.Contains(b, "Previsto: Dinheiro · troco para R$ 100,00 (levar R$ 70,00)") {
+	if b := do(h, "GET", orderURL(id), nil, false).Body.String(); !strings.Contains(b, "Paga na entrega: Dinheiro · troco para R$ 100,00 (levar R$ 70,00)") {
 		t.Error("order panel lacks the expected payment")
 	}
 	txt := ticketText(o)
@@ -350,7 +366,150 @@ func TestPayOnDeliverySheet(t *testing.T) {
 
 	id := orderWith(t, s, prod, 1)
 	b = do(h, "GET", orderURL(id), nil, false).Body.String()
-	if strings.Contains(b, "Já pagou") || !strings.Contains(b, "Forma prevista (ainda não pago)") {
-		t.Error("a local order should keep Forma prevista in the payment sheet")
+	if strings.Contains(b, "Já pagou") || strings.Contains(b, "Forma prevista") || strings.Contains(b, "Paga na entrega:") {
+		t.Error("a local order pays at the counter: no Forma prevista")
+	}
+
+	// Switching a delivery to local drops its expected payment, from the panel and the ticket.
+	do(h, "POST", orderURL(1)+"/consumo", url.Values{"consumo": {"local"}}, false)
+	o, _ := s.DB.GetOrder(context.Background(), 1)
+	if o.ExpectedMethod != "" || strings.Contains(ticketText(o), "Pagar com") {
+		t.Errorf("local order kept its expected payment: %+v", o)
+	}
+}
+
+// Paying by consumption: each person picks the units they had, the amount is their sum, and the next
+// person sees only what is left. Removing the part frees its units again.
+func TestConsumptionPayment(t *testing.T) {
+	s, h, prod := dbServer(t)
+	ctx := context.Background()
+	id := orderWith(t, s, prod, 3) // 3 Hot rolls, R$ 45,00
+	o, _ := s.DB.GetOrder(ctx, id)
+	line := o.Items[0].ID
+	field := unitsField(line)
+
+	b := do(h, "GET", orderURL(id), nil, false).Body.String()
+	for _, want := range []string{"Por Consumo", `name="` + field + `" value="0" min="0" max="3" data-line-total="4500" data-parts="3" data-paid="0"`, `data-units-step="+"`} {
+		if !strings.Contains(b, want) {
+			t.Errorf("payment sheet lacks %s", want)
+		}
+	}
+
+	for name, form := range map[string]url.Values{
+		"too many":       {"metodo": {"pix"}, field: {"4"}},
+		"negative":       {"metodo": {"pix"}, field: {"-1"}},
+		"not a number":   {"metodo": {"pix"}, field: {"x"}},
+		"cash short":     {"metodo": {"dinheiro"}, field: {"2"}, "recebido": {"20"}},
+		"bad mode":       {"metodo": {"pix"}, "modo": {"x"}},
+		"nothing picked": {"metodo": {"pix"}, "modo": {"consumo"}, "valor": {"10"}},
+	} {
+		if rec := do(h, "POST", orderURL(id)+"/pagamento", form, false); rec.Code != http.StatusUnprocessableEntity {
+			t.Errorf("%s: code %d", name, rec.Code)
+		}
+	}
+
+	// The sheet opens on Tudo with all that is left, locked; Tudo pays it all whatever valor says, and
+	// Dividir ignores picked units. Each is undone right after.
+	if !strings.Contains(b, `id="modo-tudo" checked`) || !regexp.MustCompile(`name="valor" value="45,00"[^>]*readonly`).MatchString(b) {
+		t.Error("sheet should open on Tudo with all that is left")
+	}
+	for name, form := range map[string]url.Values{
+		"tudo":    {"metodo": {"pix"}, "modo": {"tudo"}, "valor": {"10"}, field: {"1"}},
+		"dividir": {"metodo": {"pix"}, "modo": {"dividir"}, "valor": {"45"}, field: {"1"}},
+	} {
+		do(h, "POST", orderURL(id)+"/pagamento", form, true)
+		o, _ := s.DB.GetOrder(ctx, id)
+		if !o.Paid() || len(o.Payments[0].Items) != 0 {
+			t.Errorf("%s: %+v", name, o.Payments)
+		}
+		do(h, "DELETE", paymentURL(id, o.Payments[0].ID), nil, true)
+	}
+
+	// Ana had 2: R$ 30,00, whatever valor says.
+	rec := do(h, "POST", orderURL(id)+"/pagamento", url.Values{"metodo": {"pix"}, field: {"2"}, "valor": {"1"}}, true)
+	if b := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(b, "2x Hot roll") || !strings.Contains(b, "falta 1 de 3") ||
+		!strings.Contains(b, `max="1"`) || !strings.Contains(b, `id="modo-consumo" checked`) {
+		t.Fatalf("first part: %d %s", rec.Code, b)
+	}
+	o, _ = s.DB.GetOrder(ctx, id)
+	if o.PaidCents != 3000 || o.Items[0].PaidQty != 2 || len(o.Payments[0].Items) != 1 {
+		t.Fatalf("stored: %+v", o)
+	}
+	if rec := do(h, "POST", orderURL(id)+"/pagamento", url.Values{"metodo": {"pix"}, field: {"2"}}, false); rec.Code != http.StatusUnprocessableEntity {
+		t.Errorf("paid the same unit twice: %d", rec.Code)
+	}
+
+	// Bia pays the last one in cash; nothing is left to pick.
+	do(h, "POST", orderURL(id)+"/pagamento", url.Values{"metodo": {"dinheiro"}, field: {"1"}, "recebido": {"20"}}, true)
+	o, _ = s.DB.GetOrder(ctx, id)
+	if !o.Paid() || o.Payments[1].CashGivenCents != 2000 || canPayByConsumption(o) {
+		t.Fatalf("second part: %+v", o)
+	}
+
+	// Removing Ana's part frees her 2 units.
+	do(h, "DELETE", paymentURL(id, o.Payments[0].ID), nil, true)
+	o, _ = s.DB.GetOrder(ctx, id)
+	if o.Items[0].UnpaidQty() != 2 || o.PaidCents != 1500 {
+		t.Errorf("after removing a part: %+v", o)
+	}
+
+	// A typed or equal-share part leaves the units alone, and a consumption part can't go over what is left.
+	do(h, "POST", orderURL(id)+"/pagamento", url.Values{"metodo": {"pix"}, "valor": {"20"}}, true)
+	if rec := do(h, "POST", orderURL(id)+"/pagamento", url.Values{"metodo": {"pix"}, field: {"1"}}, false); rec.Code != http.StatusUnprocessableEntity {
+		t.Errorf("consumption part over what is left: %d", rec.Code)
+	}
+
+	// Removing the line drops its consumption rows; the part's amount stays.
+	if err := s.DB.SetItemQty(ctx, id, line, 0); err != nil {
+		t.Fatal(err)
+	}
+	if o, _ := s.DB.GetOrder(ctx, id); len(o.Payments) != 2 || len(o.Payments[0].Items) != 0 {
+		t.Errorf("after removing the line: %+v", o.Payments)
+	}
+}
+
+// A shared item (one 1L soda for three) is divided into parts: each person pays one part, the parts add up to
+// the item, and the division is locked once a part is paid.
+func TestSharedItemPayment(t *testing.T) {
+	s, h, prod := dbServer(t)
+	ctx := context.Background()
+	id := orderWith(t, s, prod, 1) // 1 Hot roll, R$ 15,00
+	o, _ := s.DB.GetOrder(ctx, id)
+	line := o.Items[0].ID
+	u := orderURL(id) + "/itens/" + itoa(line) + "/partes"
+
+	for _, bad := range []string{"0", "21", "x", ""} {
+		if rec := do(h, "POST", u, url.Values{"partes": {bad}}, false); rec.Code != http.StatusUnprocessableEntity {
+			t.Errorf("partes %q: code %d", bad, rec.Code)
+		}
+	}
+	if rec := do(h, "POST", orderURL(id)+"/itens/999/partes", url.Values{"partes": {"2"}}, false); rec.Code != http.StatusNotFound {
+		t.Errorf("missing line: %d", rec.Code)
+	}
+
+	rec := do(h, "POST", u, url.Values{"partes": {"7"}}, true)
+	if b := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(b, "R$ 15,00 ÷ 7 = R$ 2,15 cada · 7 partes") ||
+		!strings.Contains(b, `id="modo-consumo" checked`) || !strings.Contains(b, "7 pessoas") || !strings.Contains(b, `data-parts="7"`) {
+		t.Fatalf("split: %d %s", rec.Code, b)
+	}
+
+	// One person pays one seventh, rounded up; the division can't change any more.
+	field := unitsField(line)
+	do(h, "POST", orderURL(id)+"/pagamento", url.Values{"metodo": {"pix"}, "modo": {"consumo"}, field: {"1"}}, true)
+	o, _ = s.DB.GetOrder(ctx, id)
+	if o.PaidCents != 215 || paymentItemsText(o.Payments[0]) != "1/7 Hot roll" {
+		t.Fatalf("one part: %+v", o.Payments)
+	}
+	if rec := do(h, "POST", u, url.Values{"partes": {"3"}}, false); rec.Code != http.StatusConflict {
+		t.Errorf("division changed after a paid part: %d", rec.Code)
+	}
+	if b := do(h, "GET", orderURL(id), nil, false).Body.String(); strings.Contains(b, "Dividir item entre") {
+		t.Error("a paid division still offers to change it")
+	}
+
+	// The other six parts pay the rest exactly.
+	do(h, "POST", orderURL(id)+"/pagamento", url.Values{"metodo": {"pix"}, "modo": {"consumo"}, field: {"6"}}, true)
+	if o, _ := s.DB.GetOrder(ctx, id); !o.Paid() {
+		t.Errorf("parts do not add up: paid %d of %d", o.PaidCents, o.TotalCents)
 	}
 }

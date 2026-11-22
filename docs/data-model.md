@@ -75,7 +75,8 @@ CREATE TABLE order_items (
   qty              INTEGER NOT NULL CHECK (qty BETWEEN 1 AND 999),
   unit_price_cents INTEGER NOT NULL,
   name_snapshot    TEXT NOT NULL,
-  note             TEXT NOT NULL DEFAULT ''
+  note             TEXT NOT NULL DEFAULT '',
+  split_parts      INTEGER NOT NULL DEFAULT 1 CHECK (split_parts BETWEEN 1 AND 20) -- parts per unit when shared, Por Consumo (migration 7)
 );
 
 -- Payment parts (migration 3, decision 009). One row pays the whole bill; several split it.
@@ -86,6 +87,14 @@ CREATE TABLE order_payments (
   amount_cents     INTEGER NOT NULL CHECK (amount_cents >= 0),
   cash_given_cents INTEGER CHECK (cash_given_cents >= amount_cents),  -- dinheiro only, optional
   paid_at          TEXT NOT NULL
+);
+
+-- Units of each line a payment part covers when paid by consumption (migration 6).
+CREATE TABLE order_payment_items (
+  payment_id    INTEGER NOT NULL REFERENCES order_payments(id) ON DELETE CASCADE,
+  order_item_id INTEGER NOT NULL REFERENCES order_items(id) ON DELETE CASCADE,
+  qty           INTEGER NOT NULL CHECK (qty >= 1),
+  PRIMARY KEY (payment_id, order_item_id)
 );
 
 CREATE INDEX orders_created_at ON orders(created_at);

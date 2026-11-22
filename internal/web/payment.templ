@@ -15,13 +15,7 @@ templ paymentSummary(o db.Order) {
 		@paymentList(o, false)
 		@paymentStatus(o)
 		if t := expectedText(o); t != "" {
-			<p class="text-sm">
-				if o.Consume == db.ConsumeDelivery {
-					Paga na entrega: { t }
-				} else {
-					Previsto: { t }
-				}
-			</p>
+			<p class="text-sm">Paga na entrega: { t }</p>
 		}
 		if canPay(o) {
 			// A delivery with something left to pay offers Paga na entrega next to the payment button:
@@ -79,6 +73,9 @@ templ paymentList(o db.Order, removable bool) {
 							<span>{ paymentLabels[p.Method] } <span class="text-sm font-normal text-ink-muted">{ localTime(p.PaidAt, "15:04") }</span></span>
 							<span>{ money.Format(p.AmountCents) }</span>
 						</p>
+						if len(p.Items) > 0 {
+							<p class="text-sm text-ink-muted">{ paymentItemsText(p) }</p>
+						}
 						if p.CashGivenCents > 0 {
 							<p class="text-sm tabular-nums text-ink-muted">Recebido { money.Format(p.CashGivenCents) } · Troco { money.Format(p.CashGivenCents - p.AmountCents) }</p>
 						}
@@ -129,6 +126,45 @@ templ PaymentPanel(o db.Order, oob bool) {
 				novalidate
 				class="group space-y-3 border-t border-line pt-3"
 			>
+				{{ people := max(o.SplitPeople, 1) }}
+				{{ share := db.EqualShare(o.TotalCents, people) }}
+				{{ mode := paymentMode(o) }}
+				if rest > 0 {
+					// Tudo, Dividir and Por consumo each show their own screen (CSS on the checked radio);
+					// splitScript fills the amount for the mode picked.
+					<fieldset data-rest={ plainMoney(rest) }>
+						<legend class="mb-1 text-sm font-medium text-ink-muted">Como pagar</legend>
+						<div class={ "grid gap-2", templ.KV("grid-cols-3", canPayByConsumption(o)), templ.KV("grid-cols-2", !canPayByConsumption(o)) }>
+							for _, m := range paymentModes(o) {
+								<label class={ optionClass() + " px-2 text-center leading-tight" }>
+									<input type="radio" name="modo" value={ m } id={ "modo-" + m } checked?={ m == mode } class="sr-only"/>
+									{ paymentModeLabels[m] }
+								</label>
+							}
+						</div>
+					</fieldset>
+					// Dividir: picking how many people split the bill fills the amount with one share.
+					<div class="hidden group-has-[#modo-dividir:checked]:block" data-total={ strconv.FormatInt(o.TotalCents, 10) } data-rest={ strconv.FormatInt(rest, 10) } data-paid={ strconv.FormatInt(o.PaymentCount, 10) }>
+						<span class="mb-1 flex justify-between text-sm font-medium text-ink-muted">
+							<span>Dividir entre</span>
+							<span data-part>{ partLabel(o, people) }</span>
+						</span>
+						<div class="flex items-center gap-2">
+							<button type="button" data-split-step="-" class={ buttonClass("secondary") + " w-12 shrink-0 px-0 text-2xl" } aria-label="Menos pessoas">−</button>
+							<input type="number" name="pessoas" value={ strconv.FormatInt(people, 10) } min="1" max={ strconv.FormatInt(maxPeople, 10) } inputmode="numeric" aria-label="Pessoas" class="h-12 w-14 shrink-0 rounded-xl border border-line bg-card text-center text-xl font-semibold tabular-nums"/>
+							<button type="button" data-split-step="+" class={ buttonClass("secondary") + " w-12 shrink-0 px-0 text-2xl" } aria-label="Mais pessoas">+</button>
+							<p class="min-w-0 flex-1 text-right leading-tight">
+								<span data-share class="block font-semibold tabular-nums">{ money.Format(share) }</span>
+								<span class="text-sm text-ink-muted">por pessoa</span>
+							</p>
+						</div>
+					</div>
+					if canPayByConsumption(o) {
+						<div class="hidden group-has-[#modo-consumo:checked]:block">
+							@consumptionPicker(o)
+						</div>
+					}
+				}
 				<fieldset>
 					<legend class="mb-1 text-sm font-medium text-ink-muted">Forma de pagamento</legend>
 					<div class="grid grid-cols-2 gap-2">
@@ -140,24 +176,8 @@ templ PaymentPanel(o db.Order, oob bool) {
 						}
 					</div>
 				</fieldset>
-				{{ people := max(o.SplitPeople, 1) }}
-				{{ share := db.EqualShare(o.TotalCents, people) }}
-				if rest > 0 {
-					// Picking how many people split the bill fills the amount with one share (splitScript).
-					<div data-total={ strconv.FormatInt(o.TotalCents, 10) } data-rest={ strconv.FormatInt(rest, 10) } data-paid={ strconv.FormatInt(o.PaymentCount, 10) }>
-						<span class="mb-1 block text-sm font-medium text-ink-muted">Dividir entre</span>
-						<div class="flex items-center gap-2">
-							<button type="button" data-split-step="-" class={ buttonClass("secondary") + " w-12 shrink-0 px-0 text-2xl" } aria-label="Menos pessoas">−</button>
-							<input type="number" name="pessoas" value={ strconv.FormatInt(people, 10) } min="1" max={ strconv.FormatInt(maxPeople, 10) } inputmode="numeric" aria-label="Pessoas" class="h-12 w-14 shrink-0 rounded-xl border border-line bg-card text-center text-xl font-semibold tabular-nums"/>
-							<button type="button" data-split-step="+" class={ buttonClass("secondary") + " w-12 shrink-0 px-0 text-2xl" } aria-label="Mais pessoas">+</button>
-							<p class="min-w-0 flex-1 text-right leading-tight">
-								<span data-share class="block font-semibold tabular-nums">{ money.Format(share) }</span>
-								<span class="text-sm text-ink-muted">por pessoa</span>
-							</p>
-						</div>
-					</div>
-				}
-				@MoneyInput("valor", amountLabel(o, people), plainMoney(partAmount(o, people)), nil)
+				{{ split := plainMoney(partAmount(o, people)) }}
+				@MoneyInput("valor", "Valor a pagar", modeAmount(o, mode, people), templ.Attributes{"data-default": split, "readonly": mode == modeAll || mode == modeConsumption})
 				// Shown only while Dinheiro is checked.
 				<div class="hidden space-y-2 group-has-[#pagamento-dinheiro:checked]:block">
 					@MoneyInput("recebido", "Valor recebido (opcional)", "", nil)
@@ -180,55 +200,69 @@ templ PaymentPanel(o db.Order, oob bool) {
 				</div>
 			</form>
 		}
-		// A delivery sets this in its own sheet (DeliveryPaymentPanel).
-		if canPay(o) && o.RemainingCents() > 0 && o.Consume != db.ConsumeDelivery {
-			@expectedForm(o)
-		}
 		@sheetBack("pagamento-sheet", o.Paid())
 	</div>
 }
 
-// expectedForm records how the client will pay what is left, printed on the ticket next to A PAGAR.
-// It opens by itself once a method is set. Troco para shows only while Dinheiro is checked.
-templ expectedForm(o db.Order) {
-	<details open?={ o.ExpectedMethod != "" } class="border-t border-line pt-3">
-		<summary class="flex min-h-12 cursor-pointer items-center font-semibold">Forma prevista (ainda não pago)</summary>
-		<form
-			method="post"
-			action={ orderURL(o.ID) + "/pagamento-previsto" }
-			hx-post={ orderURL(o.ID) + "/pagamento-previsto" }
-			hx-target="#pagamento"
-			hx-swap="outerHTML"
-			hx-on::after-request="document.getElementById('pagamento-erro')?.scrollIntoView({block: 'nearest'})"
-			novalidate
-			class="group space-y-3"
-		>
-			<p class="text-sm text-ink-muted">Sai no ticket junto com A PAGAR. Não conta como pago.</p>
-			<fieldset>
-				<legend class="sr-only">Forma prevista</legend>
-				<div class="grid grid-cols-2 gap-2">
-					for _, m := range db.PaymentMethods {
-						<label class={ optionClass() }>
-							<input type="radio" name="previsto" value={ m } id={ "previsto-" + m } checked?={ o.ExpectedMethod == m } class="sr-only"/>
-							{ paymentLabels[m] }
-						</label>
+// consumptionPicker lets one person pay for what they consumed: a stepper per order line, up to the units
+// not yet paid this way. Any pick fills the amount with their sum and locks it (splitScript); the server
+// recomputes it from the units.
+templ consumptionPicker(o db.Order) {
+	<section class="rounded-xl border border-line">
+		<p class="flex min-h-12 items-center justify-between gap-2 px-3 font-semibold">
+			<span>Consumido</span>
+			<span data-units-sum class="tabular-nums text-ink-muted"></span>
+		</p>
+		<p class="px-3 text-sm text-ink-muted">Marque o que esta pessoa consumiu. O valor é a soma dos itens.</p>
+		<ul class="divide-y divide-line px-3">
+			for _, it := range o.Items {
+				{{ left := it.UnpaidQty() }}
+				{{ split := max(it.SplitParts, 1) }}
+				<li class="space-y-2 py-2">
+					<div class="flex items-center gap-2">
+						<div class="min-w-0 flex-1">
+							<p class="break-words font-medium">{ it.NameSnapshot }</p>
+							<p class="text-sm tabular-nums text-ink-muted">{ consumptionText(it) }</p>
+						</div>
+						if left > 0 {
+							// The steppers count parts: units, or shares of a unit when the item is divided.
+							<button type="button" data-units-step="-" class={ buttonClass("secondary") + " w-12 shrink-0 px-0 text-2xl" } aria-label={ "Menos " + it.NameSnapshot }>−</button>
+							<input
+								type="number"
+								name={ unitsField(it.ID) }
+								value="0"
+								min="0"
+								max={ strconv.FormatInt(left, 10) }
+								data-line-total={ strconv.FormatInt(it.Qty*it.UnitPriceCents, 10) }
+								data-parts={ strconv.FormatInt(it.Parts(), 10) }
+								data-paid={ strconv.FormatInt(it.PaidQty, 10) }
+								inputmode="numeric"
+								aria-label={ "Quantidade de " + it.NameSnapshot }
+								class="h-12 w-12 shrink-0 rounded-xl border border-line bg-card text-center text-xl font-semibold tabular-nums"
+							/>
+							<button type="button" data-units-step="+" class={ buttonClass("secondary") + " w-12 shrink-0 px-0 text-2xl" } aria-label={ "Mais " + it.NameSnapshot }>+</button>
+						}
+					</div>
+					// A shared item (a 1L soda for three) is divided into parts until one is paid.
+					if it.PaidQty == 0 {
+						{{ u := orderURL(o.ID) + "/itens/" + strconv.FormatInt(it.ID, 10) + "/partes" }}
+						<div class="flex items-center gap-2 text-sm">
+							<span class="flex-1 text-ink-muted">Dividir item entre</span>
+							<button type="button" hx-post={ u } hx-vals={ splitVals(split - 1) } hx-target="#pagamento" hx-swap="outerHTML" disabled?={ split <= 1 } class={ buttonClass("secondary") + " min-h-10 w-10 shrink-0 px-0 text-xl" } aria-label={ "Dividir " + it.NameSnapshot + " entre menos pessoas" }>−</button>
+							<span class="w-16 text-center font-semibold tabular-nums">
+								if split == 1 {
+									1 pessoa
+								} else {
+									{ strconv.FormatInt(split, 10) } pessoas
+								}
+							</span>
+							<button type="button" hx-post={ u } hx-vals={ splitVals(split + 1) } hx-target="#pagamento" hx-swap="outerHTML" disabled?={ split >= db.MaxSplitParts } class={ buttonClass("secondary") + " min-h-10 w-10 shrink-0 px-0 text-xl" } aria-label={ "Dividir " + it.NameSnapshot + " entre mais pessoas" }>+</button>
+						</div>
 					}
-					<label class={ optionClass() + " col-span-2" }>
-						<input type="radio" name="previsto" value="" checked?={ o.ExpectedMethod == "" } class="sr-only"/>
-						Não informado
-					</label>
-				</div>
-			</fieldset>
-			<div class="hidden group-has-[#previsto-dinheiro:checked]:block">
-				@MoneyInput("troco_para", "Troco para (opcional)", changeForValue(o), nil)
-			</div>
-			<div class="grid">
-				@Button("secondary", templ.Attributes{"type": "submit"}) {
-					Salvar forma prevista
-				}
-			</div>
-		</form>
-	</details>
+				</li>
+			}
+		</ul>
+	</section>
 }
 
 // DeliveryPaymentPanel is the body of the Pagamento na entrega sheet: what the courier collects and how the
@@ -295,31 +329,68 @@ func changeForValue(o db.Order) string {
 	return plainMoney(o.ChangeForCents)
 }
 
-// splitScript drives the people picker: − and + step it, and any change fills the amount with one share.
-// Like partAmount: db.EqualShare (total / people, rounded up), capped at what is left; the last part is all that is left.
-// Integer centavos only.
+// splitScript drives the payment form. The Como pagar buttons fill the amount for their screen: Tudo all that
+// is left (locked), Dividir one share, Por consumo the sum of the picked units (locked, empty until one is picked).
+// In Dividir, − and + step the people picker and any change fills one share, like partAmount: db.EqualShare
+// (total / people, rounded up), capped at what is left; the last part is all that is left. In Por consumo the
+// steppers do the same with the units. Integer centavos only.
 templ splitScript() {
 	<script>
-		document.addEventListener("click", (e) => {
-			const b = e.target.closest("[data-split-step]");
-			if (!b) return;
-			const n = b.form.pessoas;
-			b.dataset.splitStep === "+" ? n.stepUp() : n.stepDown();
-			n.dispatchEvent(new Event("input", { bubbles: true }));
-		});
-		document.addEventListener("input", (e) => {
-			if (e.target.name !== "pessoas") return;
-			const box = e.target.closest("[data-total]");
-			const total = Number(box.dataset.total), rest = Number(box.dataset.rest);
-			const n = Math.max(1, Math.min(Number(e.target.max), parseInt(e.target.value, 10) || 1));
-			const up = total + n - 1;
-			const share = (up - (up % n)) / n;
+		{
 			const fmt = (c) => String((c - (c % 100)) / 100).replace(/\B(?=(\d{3})+(?!\d))/g, ".") + "," + String(c % 100).padStart(2, "0");
-			box.querySelector("[data-share]").textContent = "R$ " + fmt(share);
-			const v = e.target.form.valor;
-			v.value = fmt(Number(box.dataset.paid) + 1 >= n ? rest : Math.min(share, rest));
-			v.dispatchEvent(new Event("input", { bubbles: true }));
-		});
+			const setValue = (v, value, locked) => {
+				v.value = value;
+				v.readOnly = locked;
+				v.dispatchEvent(new Event("input", { bubbles: true }));
+			};
+			// Like db.OrderItem.PartsCost: the first m parts cost lineTotal * m / parts, rounded up.
+			const unitsTotal = (form) => {
+				let total = 0;
+				for (const u of form.querySelectorAll("input[data-line-total]")) {
+					const n = Math.max(0, Math.min(Number(u.max), parseInt(u.value, 10) || 0));
+					const line = Number(u.dataset.lineTotal), parts = Number(u.dataset.parts), paid = Number(u.dataset.paid);
+					const cum = (m) => { const x = Math.min(m, parts) * line + parts - 1; return (x - (x % parts)) / parts; };
+					total += cum(paid + n) - cum(paid);
+				}
+				return total;
+			};
+			const fill = (form) => {
+				const v = form.valor, mode = form.querySelector("[name=modo]:checked")?.value;
+				if (mode === "tudo") return setValue(v, form.querySelector("[data-rest]").dataset.rest, true);
+				if (mode === "dividir") return setValue(v, v.dataset.default, false);
+				if (mode === "consumo") {
+					const total = unitsTotal(form);
+					form.querySelector("[data-units-sum]").textContent = total > 0 ? "R$ " + fmt(total) : "";
+					return setValue(v, total > 0 ? fmt(total) : "", true);
+				}
+			};
+			document.addEventListener("click", (e) => {
+				const b = e.target.closest("[data-split-step], [data-units-step]");
+				if (!b) return;
+				const n = b.dataset.splitStep ? b.form.pessoas : b.parentElement.querySelector("input[data-line-total]");
+				(b.dataset.splitStep || b.dataset.unitsStep) === "+" ? n.stepUp() : n.stepDown();
+				n.dispatchEvent(new Event("input", { bubbles: true }));
+			});
+			document.addEventListener("change", (e) => {
+				if (e.target.name === "modo") fill(e.target.form);
+			});
+			document.addEventListener("input", (e) => {
+				const form = e.target.form;
+				if (e.target.name === "pessoas") {
+					const box = e.target.closest("[data-total]");
+					const total = Number(box.dataset.total), rest = Number(box.dataset.rest), paid = Number(box.dataset.paid);
+					const n = Math.max(1, Math.min(Number(e.target.max), parseInt(e.target.value, 10) || 1));
+					const up = total + n - 1;
+					const share = (up - (up % n)) / n;
+					box.querySelector("[data-share]").textContent = "R$ " + fmt(share);
+					box.querySelector("[data-part]").textContent = n > 1 ? "Parte " + Math.min(paid + 1, n) + " de " + n : "";
+					form.valor.dataset.default = fmt(paid + 1 >= n ? rest : Math.min(share, rest));
+					fill(form);
+				} else if ("lineTotal" in e.target.dataset) {
+					fill(form);
+				}
+			});
+		}
 	</script>
 }
 
@@ -336,12 +407,24 @@ func plainMoney(cents int64) string {
 	return money.Format(cents)[len("R$ "):]
 }
 
-// amountLabel names the amount field, with the part being paid when the bill is split: "Valor a pagar · Parte 2 de 3".
-func amountLabel(o db.Order, people int64) string {
+// partLabel names the part being paid when the bill is split: "Parte 2 de 3". Empty for one person.
+func partLabel(o db.Order, people int64) string {
 	if people < 2 {
-		return "Valor a pagar"
+		return ""
 	}
-	return fmt.Sprintf("Valor a pagar · Parte %d de %d", min(o.PaymentCount+1, people), people)
+	return fmt.Sprintf("Parte %d de %d", min(o.PaymentCount+1, people), people)
+}
+
+// modeAmount fills the amount field for the mode the sheet opens on: all that is left, one share, or nothing
+// until items are picked.
+func modeAmount(o db.Order, mode string, people int64) string {
+	switch mode {
+	case modeSplit:
+		return plainMoney(partAmount(o, people))
+	case modeConsumption:
+		return ""
+	}
+	return plainMoney(o.RemainingCents())
 }
 
 // partAmount fills the amount field: one share capped at what is left, or all that is left on the last part,

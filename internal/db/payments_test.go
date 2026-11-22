@@ -183,3 +183,18 @@ func TestSetExpectedPayment(t *testing.T) {
 		t.Errorf("cancelled order: %v", err)
 	}
 }
+
+// Parts of a divided line always add up to the line, each within a centavo of the others.
+func TestPartsCost(t *testing.T) {
+	for _, tc := range []struct{ line, parts int64 }{{1500, 7}, {1000, 3}, {1, 3}, {9999, 20}, {0, 4}} {
+		var sum, lo, hi int64 = 0, tc.line, 0
+		for i := int64(0); i < tc.parts; i++ {
+			c := partsCost(tc.line, tc.parts, i, 1)
+			sum += c
+			lo, hi = min(lo, c), max(hi, c)
+		}
+		if sum != tc.line || hi-lo > 1 {
+			t.Errorf("partsCost(%d, %d): sum %d, spread %d", tc.line, tc.parts, sum, hi-lo)
+		}
+	}
+}

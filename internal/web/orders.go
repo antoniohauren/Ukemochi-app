@@ -492,6 +492,8 @@ func errorStatus(err error) (int, string) {
 		return http.StatusConflict, "Os pagamentos não batem com o total. Atualize o pagamento."
 	case errors.Is(err, db.ErrOverpaid):
 		return http.StatusUnprocessableEntity, "Valor maior que o que falta pagar."
+	case errors.Is(err, db.ErrSplitPaid):
+		return http.StatusConflict, "Esse item já tem partes pagas. Remova esses pagamentos para mudar a divisão."
 	case errors.Is(err, db.ErrCashShort):
 		return http.StatusUnprocessableEntity, "Valor recebido menor que o valor a pagar."
 	case errors.Is(err, db.ErrNotEditable):

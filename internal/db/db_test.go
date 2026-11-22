@@ -54,8 +54,8 @@ func TestMigrateIdempotent(t *testing.T) {
 	}
 	var v int
 	d.QueryRow("PRAGMA user_version").Scan(&v)
-	if v != 5 {
-		t.Fatalf("user_version = %d, want 5", v)
+	if v != 7 {
+		t.Fatalf("user_version = %d, want 7", v)
 	}
 	var fk int
 	d.QueryRow("PRAGMA foreign_keys").Scan(&fk)

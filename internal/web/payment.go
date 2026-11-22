@@ -16,6 +16,36 @@ func (s *Server) registerPayment(mux *http.ServeMux) {
 	mux.HandleFunc("POST /pedidos/{id}/pagamentos/{pagamento}", s.deletePayment) // form fallback without htmx
 	mux.HandleFunc("GET /pedidos/{id}/troco", s.change)
 	mux.HandleFunc("POST /pedidos/{id}/pagamento-previsto", s.setExpectedPayment)
+	mux.HandleFunc("POST /pedidos/{id}/itens/{item}/partes", s.setItemSplit)
+}
+
+// setItemSplit splits a shared line into partes for Por consumo (a 1L soda for three), then answers like a
+// payment change, so the sheet stays on Por consumo.
+func (s *Server) setItemSplit(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r, "id")
+	item, okI := pathID(r, "item")
+	if !ok || !okI {
+		fail(w, r, db.ErrNotFound)
+		return
+	}
+	if err := parseForm(w, r); err != nil {
+		fail(w, r, err)
+		return
+	}
+	parts, err := strconv.ParseInt(strings.TrimSpace(r.PostFormValue("partes")), 10, 64)
+	if err != nil || parts < 1 || parts > db.MaxSplitParts {
+		fail(w, r, inputError("Divida o item entre 1 e "+strconv.Itoa(db.MaxSplitParts)+" pessoas."))
+		return
+	}
+	if err := s.DB.SetItemSplit(r.Context(), id, item, parts); err != nil {
+		fail(w, r, err)
+		return
+	}
+	toast := "Item dividido em " + strconv.FormatInt(parts, 10)
+	if parts == 1 {
+		toast = "Item sem divisão"
+	}
+	s.paymentDone(w, r, id, toast)
 }
 
 // setExpectedPayment records how the client will pay what is left, for the ticket. An empty previsto clears it.
@@ -36,6 +66,10 @@ func (s *Server) setExpectedPayment(w http.ResponseWriter, r *http.Request) {
 	method := r.PostFormValue("previsto")
 	if method != "" && !slices.Contains(db.PaymentMethods, method) {
 		fail(w, r, inputError("Forma de pagamento prevista inválida."))
+		return
+	}
+	if method != "" && o.Consume != db.ConsumeDelivery {
+		fail(w, r, inputError("Forma prevista só vale para entrega: no local, registre o pagamento."))
 		return
 	}
 	var changeFor int64
@@ -74,10 +108,10 @@ func payOnDelivery(o db.Order) bool {
 }
 
 // expectedText describes the expected payment of what is left: "Dinheiro · troco para R$ 100,00 (levar R$ 64,00)".
-// It is empty when nothing is left to pay or no method is set.
+// It is empty when nothing is left to pay, no method is set or the order is eaten in (paid at the counter).
 func expectedText(o db.Order) string {
 	rest := o.RemainingCents()
-	if rest <= 0 || o.ExpectedMethod == "" {
+	if rest <= 0 || o.ExpectedMethod == "" || o.Consume != db.ConsumeDelivery {
 		return ""
 	}
 	t := paymentLabels[o.ExpectedMethod]
@@ -118,9 +152,35 @@ func (s *Server) addPayment(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, inputError("Escolha a forma de pagamento."))
 		return
 	}
+	// modo is the sheet's Tudo / Dividir / Por consumo button. Without it (no form buttons on a free order),
+	// picked units or a typed valor decide.
+	mode := r.PostFormValue("modo")
+	if mode != "" && !slices.Contains(allPaymentModes, mode) {
+		fail(w, r, inputError("Escolha como pagar."))
+		return
+	}
+	var units map[int64]int64
+	if mode == "" || mode == modeConsumption {
+		var err error
+		if units, err = parseUnits(r, o); err != nil {
+			fail(w, r, err)
+			return
+		}
+	}
+	if mode == modeConsumption && len(units) == 0 {
+		fail(w, r, inputError("Marque o que esta pessoa consumiu."))
+		return
+	}
+	people := parsePeople(r.PostFormValue("pessoas"))
+	if mode == modeAll {
+		people = 1
+	}
 	rest := o.RemainingCents()
 	amount := rest
-	if v := strings.TrimSpace(r.PostFormValue("valor")); v != "" {
+	if len(units) > 0 {
+		// Por consumo: the amount is what was picked, never the typed valor.
+		amount = unitsTotal(o, units)
+	} else if v := strings.TrimSpace(r.PostFormValue("valor")); mode != modeAll && v != "" {
 		var err error
 		if amount, err = money.Parse(v); err != nil {
 			fail(w, r, inputError("Valor a pagar inválido."))
@@ -150,11 +210,115 @@ func (s *Server) addPayment(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if err := s.DB.AddPayment(r.Context(), o.ID, method, amount, given, parsePeople(r.PostFormValue("pessoas"))); err != nil {
+	var err error
+	if len(units) > 0 {
+		_, err = s.DB.AddConsumptionPayment(r.Context(), o.ID, method, given, units)
+	} else {
+		err = s.DB.AddPayment(r.Context(), o.ID, method, amount, given, people)
+	}
+	if err != nil {
 		fail(w, r, err)
 		return
 	}
 	s.paymentDone(w, r, o.ID, "Pagamento registrado")
+}
+
+// Payment modes: the sheet's Como pagar buttons, each showing its own screen.
+const (
+	modeAll         = "tudo"    // all that is left
+	modeSplit       = "dividir" // an equal share, or a typed amount
+	modeConsumption = "consumo" // the units one person had
+)
+
+var allPaymentModes = []string{modeAll, modeSplit, modeConsumption}
+
+var paymentModeLabels = map[string]string{modeAll: "Tudo", modeSplit: "Dividir", modeConsumption: "Por Consumo"}
+
+// paymentModes lists the modes the sheet offers; Por consumo only while some unit is still unpaid.
+func paymentModes(o db.Order) []string {
+	if canPayByConsumption(o) {
+		return allPaymentModes
+	}
+	return allPaymentModes[:2]
+}
+
+// paymentMode is the mode the sheet opens on: how the bill was being split so far, Tudo otherwise.
+func paymentMode(o db.Order) string {
+	switch {
+	case (paidByConsumption(o) || hasSplitItem(o)) && canPayByConsumption(o):
+		return modeConsumption
+	case o.SplitPeople > 1:
+		return modeSplit
+	}
+	return modeAll
+}
+
+// unitsField names the Por consumo stepper of one order line.
+func unitsField(itemID int64) string { return "unidades-" + strconv.FormatInt(itemID, 10) }
+
+// parseUnits reads the Por consumo steppers: how many units of each line this part pays. Empty and 0 are skipped;
+// more than the line still has unpaid is an error.
+func parseUnits(r *http.Request, o db.Order) (map[int64]int64, error) {
+	units := map[int64]int64{}
+	for _, it := range o.Items {
+		v := strings.TrimSpace(r.PostFormValue(unitsField(it.ID)))
+		if v == "" || v == "0" {
+			continue
+		}
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil || n < 0 || n > it.UnpaidQty() {
+			return nil, inputError("Quantidade inválida para " + it.NameSnapshot + ".")
+		}
+		if n > 0 {
+			units[it.ID] = n
+		}
+	}
+	return units, nil
+}
+
+// unitsTotal is what the picked units cost, in centavos.
+func unitsTotal(o db.Order, units map[int64]int64) int64 {
+	var total int64
+	for _, it := range o.Items {
+		total += it.PartsCost(it.PaidQty, units[it.ID])
+	}
+	return total
+}
+
+// hasSplitItem reports whether a line is split into parts, so the sheet opens on Por consumo.
+func hasSplitItem(o db.Order) bool {
+	return slices.ContainsFunc(o.Items, func(it db.OrderItem) bool { return it.SplitParts > 1 })
+}
+
+// partsText counts parts of a line: "2" for whole units, "1/3" for a third of a split unit.
+func partsText(n, split int64) string {
+	if split <= 1 {
+		return strconv.FormatInt(n, 10)
+	}
+	return strconv.FormatInt(n, 10) + "/" + strconv.FormatInt(split, 10)
+}
+
+// canPayByConsumption reports whether the Por consumo picker has something to offer.
+func canPayByConsumption(o db.Order) bool {
+	return slices.ContainsFunc(o.Items, func(it db.OrderItem) bool { return it.UnpaidQty() > 0 })
+}
+
+// paidByConsumption reports whether a part was already paid by consumption, so the picker opens by itself.
+func paidByConsumption(o db.Order) bool {
+	return slices.ContainsFunc(o.Payments, func(p db.Payment) bool { return len(p.Items) > 0 })
+}
+
+// paymentItemsText lists what a part paid by consumption covers: "2x Hot roll · 1/3 Coca-Cola 1L".
+func paymentItemsText(p db.Payment) string {
+	parts := make([]string, len(p.Items))
+	for i, it := range p.Items {
+		if it.SplitParts > 1 {
+			parts[i] = partsText(it.Qty, it.SplitParts) + " " + it.Name
+		} else {
+			parts[i] = strconv.FormatInt(it.Qty, 10) + "x " + it.Name
+		}
+	}
+	return strings.Join(parts, " · ")
 }
 
 // maxPeople caps the split picker.
@@ -232,4 +396,25 @@ func changeText(amount int64, typed string) (label, shown string, ok bool) {
 		return "Faltam", money.Format(amount - given), false
 	}
 	return "Troco", money.Format(c), true
+}
+
+// splitVals is the hx-vals of a Dividir item entre button.
+func splitVals(parts int64) string { return `{"partes":"` + strconv.FormatInt(parts, 10) + `"}` }
+
+// consumptionText describes a line in the Por consumo picker: its price, how it is divided and what is left,
+// e.g. "R$ 15,00 · 3 no pedido" or "R$ 12,00 ÷ 3 = R$ 4,00 cada · falta 2 de 3".
+func consumptionText(it db.OrderItem) string {
+	t := money.Format(it.UnitPriceCents)
+	if it.SplitParts > 1 {
+		t += " ÷ " + strconv.FormatInt(it.SplitParts, 10) + " = " + money.Format(it.PartsCost(0, 1)) + " cada"
+	}
+	switch left := it.UnpaidQty(); {
+	case left == 0:
+		return t + " · pago"
+	case it.PaidQty > 0:
+		return t + " · falta " + strconv.FormatInt(left, 10) + " de " + strconv.FormatInt(it.Parts(), 10)
+	case it.SplitParts > 1:
+		return t + " · " + strconv.FormatInt(it.Parts(), 10) + " partes"
+	}
+	return t + " · " + strconv.FormatInt(it.Qty, 10) + " no pedido"
 }

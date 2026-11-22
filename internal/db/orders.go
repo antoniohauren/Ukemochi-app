@@ -88,6 +88,63 @@ type OrderItem struct {
 	NameSnapshot   string
 	Note           string
 	PrintableName  string // current products.printable_name, for the ticket; filled by GetOrder
+	SplitParts     int64  // how many parts each unit is split into for paying by consumption; 1 when not shared
+	PaidQty        int64  // parts covered by payment parts made by consumption; filled by GetOrder
+}
+
+// Parts is how many parts the line can be paid in by consumption: Qty when not split, Qty * SplitParts otherwise.
+func (it OrderItem) Parts() int64 { return it.Qty * max(it.SplitParts, 1) }
+
+// UnpaidQty is how many parts of the line are still free to pay by consumption.
+func (it OrderItem) UnpaidQty() int64 { return max(0, it.Parts()-it.PaidQty) }
+
+// PartsCost is what n parts cost after the first from are paid. The first m parts cost the line total * m / Parts,
+// rounded up, so every part costs the same give or take a centavo and all of them add up to the line total.
+func (it OrderItem) PartsCost(from, n int64) int64 {
+	return partsCost(it.Qty*it.UnitPriceCents, it.Parts(), from, n)
+}
+
+func partsCost(lineTotal, parts, from, n int64) int64 {
+	cum := func(m int64) int64 {
+		m = min(max(m, 0), parts)
+		return (m*lineTotal + parts - 1) / parts
+	}
+	return cum(from+n) - cum(from)
+}
+
+// MaxSplitParts caps how many people share one item; it matches the CHECK on order_items.split_parts.
+const MaxSplitParts = 20
+
+// ErrSplitPaid is returned when a line's split changes after some of its parts were paid.
+var ErrSplitPaid = errors.New("item já tem partes pagas")
+
+// SetItemSplit splits each unit of a line into parts for paying by consumption, at any status except fechado
+// and cancelado. It is refused once a part of the line was paid by consumption.
+func (d *DB) SetItemSplit(ctx context.Context, orderID, itemID, parts int64) error {
+	if parts < 1 || parts > MaxSplitParts {
+		return ErrInvalid
+	}
+	return d.tx(ctx, func(tx *sql.Tx) error {
+		var status string
+		var paid int64
+		err := tx.QueryRowContext(ctx, `SELECT o.status,
+			(SELECT COUNT(*) FROM order_payment_items WHERE order_item_id = oi.id)
+			FROM order_items oi JOIN orders o ON o.id = oi.order_id
+			WHERE oi.id = ? AND oi.order_id = ?`, itemID, orderID).Scan(&status, &paid)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		if status == StatusClosed || status == StatusCancelled {
+			return ErrBadTransition
+		}
+		if paid > 0 {
+			return ErrSplitPaid
+		}
+		return execOne(ctx, tx, `UPDATE order_items SET split_parts = ? WHERE id = ?`, parts, itemID)
+	})
 }
 
 // CanTransition reports whether an order may move from status from to status to.
@@ -152,11 +209,12 @@ func (d *DB) GetOrder(ctx context.Context, id int64) (Order, error) {
 	}
 	// Products are never deleted, so the join always matches.
 	o.Items, err = queryAll(ctx, d, `SELECT oi.id, oi.order_id, oi.product_id, oi.qty, oi.unit_price_cents,
-		oi.name_snapshot, oi.note, p.printable_name
+		oi.name_snapshot, oi.note, p.printable_name, oi.split_parts,
+		(SELECT COALESCE(SUM(qty), 0) FROM order_payment_items WHERE order_item_id = oi.id)
 		FROM order_items oi JOIN products p ON p.id = oi.product_id WHERE oi.order_id = ? ORDER BY oi.id`,
 		func(r *sql.Rows, it *OrderItem) error {
 			return r.Scan(&it.ID, &it.OrderID, &it.ProductID, &it.Qty, &it.UnitPriceCents, &it.NameSnapshot, &it.Note,
-				&it.PrintableName)
+				&it.PrintableName, &it.SplitParts, &it.PaidQty)
 		}, id)
 	if err != nil {
 		return o, err
@@ -333,8 +391,11 @@ func (d *DB) SetConsume(ctx context.Context, id int64, consume, address string) 
 		if status != StatusOpen && status != StatusKitchen && status != StatusReady {
 			return ErrBadTransition
 		}
-		return execOne(ctx, tx, `UPDATE orders SET consume = ?, address = COALESCE(NULLIF(?, ''), address) WHERE id = ?`,
-			consume, address, id)
+		// Eaten in, the client pays at the counter: the expected payment is for the courier only.
+		return execOne(ctx, tx, `UPDATE orders SET consume = ?, address = COALESCE(NULLIF(?, ''), address),
+			expected_method = CASE WHEN ? = 'local' THEN NULL ELSE expected_method END,
+			change_for_cents = CASE WHEN ? = 'local' THEN NULL ELSE change_for_cents END
+			WHERE id = ?`, consume, address, consume, consume, id)
 	})
 }
 

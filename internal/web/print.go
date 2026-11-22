@@ -103,7 +103,7 @@ func ticketText(o db.Order) string {
 		}
 	}
 	// How the client will pay what is left, so the courier takes the card machine or the change.
-	if rest := o.TotalCents - paid; rest > 0 && o.ExpectedMethod != "" {
+	if rest := o.TotalCents - paid; rest > 0 && o.ExpectedMethod != "" && o.Consume == db.ConsumeDelivery {
 		add(leftRight("Pagar com", paymentLabels[o.ExpectedMethod])...)
 		if o.ChangeForCents > 0 {
 			add(leftRight("Troco para", money.Format(o.ChangeForCents))...)

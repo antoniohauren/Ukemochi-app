@@ -92,3 +92,19 @@ ALTER TABLE orders ADD COLUMN split_people INTEGER NOT NULL DEFAULT 1;
 -- machine or change. change_for_cents is the note the client pays with, for dinheiro only.
 ALTER TABLE orders ADD COLUMN expected_method TEXT CHECK (expected_method IN ('pix','credito','debito','dinheiro'));
 ALTER TABLE orders ADD COLUMN change_for_cents INTEGER CHECK (change_for_cents > 0);
+
+-- migrate: 6
+-- Paying by consumption: the units of each order line a payment part covers, so the next person sees
+-- only what is left. Removing the part or the line drops its rows.
+CREATE TABLE order_payment_items (
+  payment_id    INTEGER NOT NULL REFERENCES order_payments(id) ON DELETE CASCADE,
+  order_item_id INTEGER NOT NULL REFERENCES order_items(id) ON DELETE CASCADE,
+  qty           INTEGER NOT NULL CHECK (qty >= 1),
+  PRIMARY KEY (payment_id, order_item_id)
+);
+CREATE INDEX order_payment_items_item ON order_payment_items(order_item_id);
+
+-- migrate: 7
+-- A line shared by several people (one 1L soda for three) is split into parts when paying by consumption:
+-- order_payment_items.qty then counts parts, qty * split_parts per line.
+ALTER TABLE order_items ADD COLUMN split_parts INTEGER NOT NULL DEFAULT 1 CHECK (split_parts BETWEEN 1 AND 20);
