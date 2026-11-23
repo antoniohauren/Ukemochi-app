@@ -57,3 +57,13 @@ An order's payment is a list of parts in `order_payments`, each with its own met
 - **Why:** tables often split the bill, by person or by method (part PIX, part cash). One method per order could not record that, and the report would put the whole total under one method.
 - **Rule:** a part can't exceed what is left, and an order closes only when its parts add up to the total exactly. So the report's per-method totals always add up to the day's total.
 - **Trade-off:** a split order counts once under each method it used, so the per-method order counts can add up to more than the number of orders.
+
+## 010: Windows tray icon through raw Win32 calls
+
+On Windows the app adds a notification-area icon (`internal/tray`): **Abrir no navegador** (also a double-click), **Abrir log** and **Sair**, which shuts down the same way as Ctrl+C. On other systems it does nothing.
+
+The built `ukemochi.exe` is a GUI program (`-ldflags=-H=windowsgui`), so it opens no console window. With no console it has no stderr, so the log goes to `ukemochi.log` beside the exe (or `LOG_PATH`). At startup a log over 5 MB is moved to `ukemochi.log.old`, so the two files stay under about 10 MB.
+
+- **Why:** on a restaurant PC the app is started by a double-click. A console window is easy to close by mistake, which stops the app, and it has no way to open the app. The tray is the only thing on screen.
+- **Rule:** it uses `syscall` with user32, shell32 and kernel32 directly, no tray module (decision 007) and no cgo. The icon is the PWA icon PNG, which Windows reads as icon data.
+- **Trade-off:** run from a terminal, the built exe returns at once and prints nothing: read the log file instead. `go run` and `make run` stay console programs. A console build still gets the tray, with **Mostrar/Ocultar console** when it owns its console (double-click start), never hiding a terminal it was started from.

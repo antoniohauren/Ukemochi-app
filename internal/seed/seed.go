@@ -186,6 +186,9 @@ var sample = []struct {
 		single("Macaxeira carne e queijo", 25, "Macaxeira, Carne e Queijo", "Macaxeira frita recheada com queijo e carne desfiada"),
 		single("Macaxeira calabresa e catupiry", 25, "Macax Calabresa Catup", "Macaxeira frita recheada com calabresa e catupiry"),
 	}},
+	{"Adicionais", []item{
+		single("Sunomono de pepino", 5, "Sunomono Pepino", ""),
+	}},
 	{"Bebidas", []item{
 		{"Refrigerante lata", "", []product{
 			{"Coca", "", "Coca Lata", 700}, {"Coca Zero", "", "Coca Zero Lata", 700},

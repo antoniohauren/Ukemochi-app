@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"log"
 	"mime"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -18,6 +19,7 @@ import (
 	"github.com/antoniohauren/ukemochi/internal/btprint"
 	"github.com/antoniohauren/ukemochi/internal/db"
 	"github.com/antoniohauren/ukemochi/internal/seed"
+	"github.com/antoniohauren/ukemochi/internal/tray"
 	"github.com/antoniohauren/ukemochi/internal/web"
 )
 
@@ -52,6 +54,18 @@ func authConfig() (*web.Auth, error) {
 	return a, nil
 }
 
+// localURL is the address to open in a browser on this machine. A wildcard host means localhost.
+func localURL(addr string) string {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return "http://" + addr
+	}
+	if ip := net.ParseIP(host); host == "" || ip != nil && ip.IsUnspecified() {
+		host = "localhost"
+	}
+	return "http://" + net.JoinHostPort(host, port)
+}
+
 func main() {
 	if err := run(); err != nil {
 		log.Fatal(err)
@@ -59,8 +73,18 @@ func main() {
 }
 
 func run() error {
-	if err := loadDotenv(); err != nil {
-		return err
+	// The log is set up even when .env fails, so that error reaches the log file too.
+	dotenvErr := loadDotenv()
+	logFile, err := setupLog()
+	if err != nil {
+		return fmt.Errorf("log file: %w", err)
+	}
+	var logPath string
+	if logFile != nil {
+		logPath = logFile.Name()
+	}
+	if dotenvErr != nil {
+		return dotenvErr
 	}
 	addr := env("ADDR", "127.0.0.1:8080")
 	dbPath := env("DB_PATH", "ukemochi.db")
@@ -120,6 +144,23 @@ func run() error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	ctx, quit := context.WithCancel(ctx)
+	defer quit()
+
+	// Windows only: an icon to open the app, show the console or quit. Elsewhere it does nothing.
+	icon, _ := fs.ReadFile(static, "icons/icon-192.png")
+	closeTray, err := tray.Start(tray.Options{
+		Tooltip: "Ukemochi - " + addr,
+		URL:     localURL(addr),
+		Icon:    icon,
+		LogPath: logPath,
+		OnQuit:  quit,
+	})
+	if err != nil {
+		log.Printf("tray icon: %v", err)
+	} else {
+		defer closeTray()
+	}
 
 	errCh := make(chan error, 1)
 	go func() {

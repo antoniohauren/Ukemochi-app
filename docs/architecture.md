@@ -13,6 +13,7 @@ cmd/ukemochi/main.go   config from env, DB open, routes, server
 internal/db/           schema.sql, migrations, hand-written queries (database/sql)
 internal/web/          handlers, templ views, admin PIN middleware
 internal/money/        centavos formatting and change calculation
+internal/tray/         Windows notification-area icon (no-op elsewhere)
 web/input.css          Tailwind entry: `@import "tailwindcss"; @source "../internal/web";` plus theme tokens
 static/                htmx.min.js, app.css (generated), print.css, sw.js, manifest.webmanifest, icons
 deploy/                Caddyfile, ukemochi.service
