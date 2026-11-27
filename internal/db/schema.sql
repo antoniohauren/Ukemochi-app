@@ -115,3 +115,33 @@ CREATE TABLE cash_days (
   day           TEXT PRIMARY KEY,
   opening_cents INTEGER NOT NULL CHECK (opening_cents >= 0)
 );
+
+-- migrate: 9
+-- Retirada: the client fetches the order at the counter. SQLite can't change a CHECK, so orders is
+-- rebuilt (Migrate runs steps with foreign_keys off and checks them before commit).
+CREATE TABLE orders_new (
+  id               INTEGER PRIMARY KEY,
+  channel          TEXT NOT NULL CHECK (channel IN ('whatsapp','balcao')),
+  consume          TEXT NOT NULL CHECK (consume IN ('entrega','local','retirada')),
+  client_name      TEXT NOT NULL,
+  phone_last4      TEXT,
+  status           TEXT NOT NULL DEFAULT 'aberto'
+                   CHECK (status IN ('aberto','cozinha','pronto','saiu','fechado','cancelado')),
+  notes            TEXT NOT NULL DEFAULT '',
+  created_at       TEXT NOT NULL,
+  closed_at        TEXT,
+  address          TEXT NOT NULL DEFAULT '',
+  split_people     INTEGER NOT NULL DEFAULT 1,
+  expected_method  TEXT CHECK (expected_method IN ('pix','credito','debito','dinheiro')),
+  change_for_cents INTEGER CHECK (change_for_cents > 0)
+);
+
+INSERT INTO orders_new (id, channel, consume, client_name, phone_last4, status, notes, created_at, closed_at,
+                        address, split_people, expected_method, change_for_cents)
+SELECT id, channel, consume, client_name, phone_last4, status, notes, created_at, closed_at,
+       address, split_people, expected_method, change_for_cents
+FROM orders;
+
+DROP TABLE orders;
+ALTER TABLE orders_new RENAME TO orders;
+CREATE INDEX orders_created_at ON orders(created_at);

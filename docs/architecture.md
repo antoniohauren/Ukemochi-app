@@ -37,7 +37,8 @@ Go 1.22 `http.ServeMux` patterns.
 
 | Method & path                       | Purpose                                 |
 |-------------------------------------|-----------------------------------------|
-| `GET /`                             | Open orders (cards with status)         |
+| `GET /?status=&consumo=`            | Open orders, filtered by status (`aberto`, `cozinha`, `pronto`, `saiu`) and consume (`entrega`, `local`, `retirada`); empty = all. A plain `/` reuses the last filter (cookie, 12h) |
+| `GET /pedidos/fechados?dia=`         | One day's fechado and cancelado orders (cancelado counts on its creation time), newest first; empty `dia` = today |
 | `GET /pedidos/novo`                 | New order form                          |
 | `POST /pedidos`                     | Create order                            |
 | `GET /pedidos/{id}`                 | Order editor                            |
@@ -49,7 +50,7 @@ Go 1.22 `http.ServeMux` patterns.
 | `POST /pedidos/{id}/pagamento`      | Add a payment part: `metodo`, `valor` (empty = all that is left), `recebido` (cash) |
 | `DELETE /pedidos/{id}/pagamentos/{pagamento}` | Remove a payment part (`POST` without htmx) |
 | `POST /pedidos/{id}/pagamento-previsto` | Expected payment of what is left: `previsto` (empty clears), `troco_para` (cash) |
-| `POST /pedidos/{id}/consumo`        | Switch entrega / local, with the address |
+| `POST /pedidos/{id}/consumo`        | Switch entrega / local / retirada, with the address |
 | `GET /pedidos/{id}/troco?valor=&recebido=` | Change calculation (htmx fragment) |
 | `GET /pedidos/{id}/mensagem/{tipo}` | Message text: `confirmacao`, `pronto`, `saiu` |
 | `GET /pedidos/{id}/imprimir`        | 58mm ticket page                        |
@@ -63,10 +64,12 @@ Status transitions are checked on the server. See the rules in [flows](flows.md)
 
 ## Screens
 
-- **Order list:** open orders, newest first, with status color and total. Large **Novo pedido** button.
+- **Order list:** open orders, newest first, with status color and total. Two filter buttons on top, **Status** (Todos, Abertos, Cozinha, Prontos, Saiu) and **Tipo** (Todos, Entrega, No local, Retirada), each showing its choice and opening a sheet of options with their counts; Entrega + Prontos is what is left to deliver. The 15s refresh waits while a sheet is open.
+- **Bottom nav:** on the order lists, report and menu: Abertos, Fechados, a raised **+** (Novo pedido) in the middle, Relatório and a ☰ Menu that opens a sheet with Cardápio and the dark-mode switch.
+- **Closed orders:** one day at a time (‹ date ›), fechado and cancelado orders with the same cards as the open list; tap one to see or reopen it. No totals: those are on the admin report.
 - **Order editor:** category tabs, then a product grid. Tap to add. The current order sits in a bottom sheet with quantities, total and actions.
 - **Payment:** a sheet opened from the actions sheet. It lists the parts paid so far and what is left, then method buttons, a **Dividir entre** people picker (− N +, 1 to 20, like the quantity picker) and the amount, which holds one share (all that is left for 1 person). The picker keeps its value between parts. When **Dinheiro** is chosen, a cash field shows the change live. **Voltar** returns to the actions sheet.
-- **Entrega:** a sheet opened from the actions sheet with the address and the **Entrega** / **Consumir no local** buttons. Saving returns to the actions sheet.
+- **Consumo:** a sheet opened from the actions sheet with the address and the **Entrega** / **No local** / **Retirada** buttons. Saving returns to the actions sheet.
 - **Admin report:** one day, with counts and totals per payment method and channel, a **Caixa** card (caixa inicial, cash received on closed orders, caixa esperado = the two added), the top items, and a **Copiar resumo** button.
 
 ## Copy to clipboard

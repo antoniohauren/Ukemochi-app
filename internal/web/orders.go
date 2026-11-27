@@ -48,15 +48,6 @@ func (s *Server) registerOrders(mux *http.ServeMux) {
 	mux.HandleFunc("GET /pedidos/{id}/mensagem/{tipo}", s.orderMessage)
 }
 
-func (s *Server) orderList(w http.ResponseWriter, r *http.Request) {
-	orders, err := s.DB.ListOpenOrders(r.Context())
-	if err != nil {
-		fail(w, r, err)
-		return
-	}
-	render(w, r, http.StatusOK, OrderListPage(orders))
-}
-
 func (s *Server) createOrder(w http.ResponseWriter, r *http.Request) {
 	if err := parseForm(w, r); err != nil {
 		fail(w, r, err)
@@ -92,14 +83,14 @@ func parseNewOrder(r *http.Request) (o db.NewOrder, field string, err error) {
 	if o.Consume == "" {
 		o.Consume = db.ConsumeDelivery
 	}
-	if o.Consume == db.ConsumeLocal {
+	if o.Consume != db.ConsumeDelivery {
 		o.Address = ""
 	}
 	switch {
 	case o.Channel != "whatsapp" && o.Channel != "balcao":
 		return o, "", inputError("Escolha WhatsApp ou Balcão.")
-	case o.Consume != db.ConsumeDelivery && o.Consume != db.ConsumeLocal:
-		return o, "", inputError("Escolha entrega ou consumo no local.")
+	case !db.ValidConsume(o.Consume):
+		return o, "", inputError("Escolha entrega, no local ou retirada.")
 	}
 	if err := checkAddress(o.Consume, o.Address); err != nil {
 		return o, "endereco", err
@@ -520,9 +511,9 @@ var channelLabels = map[string]string{"whatsapp": "WhatsApp", "balcao": "Balcão
 
 const maxAddress = 120
 
-var consumeLabels = map[string]string{db.ConsumeDelivery: "Entrega", db.ConsumeLocal: "No local"}
+var consumeLabels = map[string]string{db.ConsumeDelivery: "Entrega", db.ConsumeLocal: "No local", db.ConsumePickup: "Retirada"}
 
-// canChangeConsume reports whether o may still switch between entrega and local (db.SetConsume).
+// canChangeConsume reports whether o may still switch between entrega, local and retirada (db.SetConsume).
 func canChangeConsume(o db.Order) bool {
 	return o.Status == db.StatusOpen || o.Status == db.StatusKitchen || o.Status == db.StatusReady
 }

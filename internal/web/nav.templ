@@ -1,0 +1,133 @@
+package web
+
+import "strconv"
+
+// Bottom nav sections, passed as active. navMenu lights the hamburger, which holds Cardápio.
+const (
+	navOrders = "abertos"
+	navClosed = "fechados"
+	navReport = "relatorio"
+	navMenu   = "cardapio"
+)
+
+// BottomNav is the app bar pinned to the bottom of the main screens, with a raised + in the middle for a new order.
+// The hamburger opens a sheet with Cardápio and the theme switch. Pages that use it need bottom padding (pb-28)
+// so the last card clears it.
+templ BottomNav(active string) {
+	<nav aria-label="Principal" class="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-card/95 pb-[env(safe-area-inset-bottom)] backdrop-blur">
+		<div class="mx-auto grid max-w-lg grid-cols-5 items-end">
+			@navLink("/", "Abertos", active == navOrders) {
+				<path d="M9 5h10M9 12h10M9 19h10"></path><path d="M4.5 5h.01M4.5 12h.01M4.5 19h.01"></path>
+			}
+			@navLink(closedURL, "Fechados", active == navClosed) {
+				<path d="M9 11.5 11.5 14 16 9"></path><rect x="4" y="4" width="16" height="16" rx="3"></rect>
+			}
+			<div class="flex justify-center">
+				<a href="/pedidos/novo" aria-label="Novo pedido" class="-mt-7 mb-2 grid size-16 place-items-center rounded-full bg-brand text-white shadow-lg ring-4 ring-surface transition hover:bg-brand-strong active:scale-95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand">
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" class="size-8" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+				</a>
+			</div>
+			@navLink("/admin/relatorio", "Relatório", active == navReport) {
+				<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"></path>
+			}
+			<button type="button" aria-haspopup="dialog" onclick="document.getElementById('menu-sheet').showModal()" class={ navItemClass(active == navMenu) }>
+				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" class="size-6" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"></path></svg>
+				<span>Menu</span>
+			</button>
+		</div>
+	</nav>
+	@BottomSheet("menu-sheet", "Menu") {
+		<div class="grid gap-2">
+			<a href="/admin/cardapio" class={ menuRowClass() }>
+				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-6" aria-hidden="true"><path d="M4 4h12a4 4 0 0 1 4 4v12H8a4 4 0 0 1-4-4z"></path><path d="M8 9h8M8 13h6"></path></svg>
+				<span class="flex-1">Cardápio</span>
+			</a>
+			<button type="button" onclick="toggleTheme()" class={ menuRowClass() + " text-left" }>
+				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-6 dark:hidden" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"></path></svg>
+				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" class="hidden size-6 dark:block" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg>
+				<span class="flex-1 dark:hidden">Modo escuro</span>
+				<span class="hidden flex-1 dark:inline">Modo claro</span>
+			</button>
+		</div>
+	}
+}
+
+func menuRowClass() string {
+	return "flex min-h-14 items-center gap-3 rounded-xl border border-line bg-card px-4 text-lg font-semibold transition active:scale-[0.98]"
+}
+func navItemClass(active bool) string {
+	c := "flex min-h-16 flex-col items-center justify-center gap-0.5 text-xs font-medium focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand "
+	if active {
+		return c + "text-brand dark:text-brand-ink"
+	}
+	return c + "text-ink-muted active:text-ink"
+}
+
+// navLink is a nav item; its children are the paths of a 24x24 stroke icon.
+templ navLink(href, label string, active bool) {
+	<a
+		href={ templ.SafeURL(href) }
+		class={ navItemClass(active) }
+		if active {
+			aria-current="page"
+		}
+	>
+		<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-6" aria-hidden="true">
+			{ children... }
+		</svg>
+		<span>{ label }</span>
+	</a>
+}
+
+// filterButton shows a filter's current choice and opens its sheet. It stands out once something other than Todos is chosen.
+templ filterButton(sheetID, label string, tabs []orderTab) {
+	{{ cur := activeTab(tabs) }}
+	<button
+		type="button"
+		aria-haspopup="dialog"
+		onclick={ templ.JSUnsafeFuncCall("document.getElementById('" + sheetID + "').showModal()") }
+		class={ "flex min-h-14 items-center gap-2 rounded-xl border px-4 text-left transition active:scale-[0.98]",
+			templ.KV("border-line bg-card", cur.Label == "Todos"),
+			templ.KV("border-brand bg-brand-soft text-brand-ink", cur.Label != "Todos") }
+	>
+		<span class="min-w-0 flex-1">
+			<span class="block text-xs font-medium opacity-70">{ label }</span>
+			<span class="block truncate font-semibold">{ cur.Label } <span class="font-normal tabular-nums opacity-70">({ strconv.Itoa(cur.Count) })</span></span>
+		</span>
+		<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-5 shrink-0 opacity-70" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>
+	</button>
+}
+
+// filterSheet lists a filter's choices with their counts. A tap closes the sheet, swaps #lista in place and pushes the URL;
+// without htmx it is a plain link.
+templ filterSheet(sheetID, title string, tabs []orderTab) {
+	@BottomSheet(sheetID, title) {
+		<nav aria-label={ title } class="grid gap-2">
+			for _, t := range tabs {
+				<a
+					href={ templ.SafeURL(t.URL) }
+					hx-get={ t.URL }
+					hx-target="#lista"
+					hx-select="#lista"
+					hx-swap="outerHTML"
+					hx-push-url="true"
+					onclick="this.closest('dialog').close()"
+					if t.Active {
+						aria-current="true"
+					}
+					class={ "flex min-h-14 items-center gap-3 rounded-xl border px-4 text-lg font-semibold transition active:scale-[0.98]",
+						templ.KV("border-brand bg-brand-soft text-brand-ink", t.Active),
+						templ.KV("border-line bg-card", !t.Active) }
+				>
+					<span class="flex-1">{ t.Label }</span>
+					<span class="text-base tabular-nums opacity-70">{ strconv.Itoa(t.Count) }</span>
+					if t.Active {
+						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="size-5" aria-hidden="true"><path d="M5 12.5 10 17l9-10"></path></svg>
+					} else {
+						<span class="size-5" aria-hidden="true"></span>
+					}
+				</a>
+			}
+		</nav>
+	}
+}

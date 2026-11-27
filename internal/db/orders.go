@@ -30,6 +30,7 @@ const (
 
 	ConsumeDelivery = "entrega"
 	ConsumeLocal    = "local"
+	ConsumePickup   = "retirada" // the client fetches it at the counter
 
 	MaxQty = 999 // matches the CHECK on order_items.qty
 )
@@ -161,9 +162,14 @@ func CanTransition(from, to, consume string) bool {
 	case "pronto>saiu":
 		return consume == ConsumeDelivery
 	case "pronto>fechado":
-		return consume == ConsumeLocal
+		return consume == ConsumeLocal || consume == ConsumePickup
 	}
 	return false
+}
+
+// ValidConsume reports whether c is one of the consume modes.
+func ValidConsume(c string) bool {
+	return c == ConsumeDelivery || c == ConsumeLocal || c == ConsumePickup
 }
 
 // NewOrder holds the fields set when an order is created.
@@ -228,6 +234,17 @@ func (d *DB) ListOpenOrders(ctx context.Context) ([]Order, error) {
 	return queryAll(ctx, d, `SELECT `+orderCols+` FROM orders o
 		WHERE o.status NOT IN ('fechado', 'cancelado') ORDER BY o.created_at DESC, o.id DESC`,
 		func(r *sql.Rows, o *Order) error { return scanOrder(r, o) })
+}
+
+// ListClosedOrders returns the fechado and cancelado orders of [from, to), newest first.
+// A fechado order counts on its closed_at; a cancelado one has none, so it counts on its created_at.
+func (d *DB) ListClosedOrders(ctx context.Context, from, to time.Time) ([]Order, error) {
+	return queryAll(ctx, d, `SELECT `+orderCols+` FROM orders o
+		WHERE o.status IN ('fechado', 'cancelado')
+		AND COALESCE(o.closed_at, o.created_at) >= ? AND COALESCE(o.closed_at, o.created_at) < ?
+		ORDER BY COALESCE(o.closed_at, o.created_at) DESC, o.id DESC`,
+		func(r *sql.Rows, o *Order) error { return scanOrder(r, o) },
+		from.UTC().Format(timeFormat), to.UTC().Format(timeFormat))
 }
 
 // AddItem adds qty of a product to an open order, snapshotting its name and price.
@@ -373,10 +390,10 @@ func (d *DB) SetStatus(ctx context.Context, id int64, to string) error {
 	})
 }
 
-// SetConsume switches between entrega and local while the order is not yet out or finished.
-// Entrega needs an address; switching to local keeps the old one in case of a mis-tap.
+// SetConsume switches between entrega, local and retirada while the order is not yet out or finished.
+// Entrega needs an address; switching away keeps the old one in case of a mis-tap.
 func (d *DB) SetConsume(ctx context.Context, id int64, consume, address string) error {
-	if consume != ConsumeDelivery && consume != ConsumeLocal || consume == ConsumeDelivery && address == "" {
+	if !ValidConsume(consume) || consume == ConsumeDelivery && address == "" {
 		return ErrInvalid
 	}
 	return d.tx(ctx, func(tx *sql.Tx) error {
@@ -391,10 +408,10 @@ func (d *DB) SetConsume(ctx context.Context, id int64, consume, address string) 
 		if status != StatusOpen && status != StatusKitchen && status != StatusReady {
 			return ErrBadTransition
 		}
-		// Eaten in, the client pays at the counter: the expected payment is for the courier only.
+		// Eaten in or picked up, the client pays at the counter: the expected payment is for the courier only.
 		return execOne(ctx, tx, `UPDATE orders SET consume = ?, address = COALESCE(NULLIF(?, ''), address),
-			expected_method = CASE WHEN ? = 'local' THEN NULL ELSE expected_method END,
-			change_for_cents = CASE WHEN ? = 'local' THEN NULL ELSE change_for_cents END
+			expected_method = CASE WHEN ? = 'entrega' THEN expected_method END,
+			change_for_cents = CASE WHEN ? = 'entrega' THEN change_for_cents END
 			WHERE id = ?`, consume, address, consume, consume, id)
 	})
 }

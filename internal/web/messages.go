@@ -30,6 +30,9 @@ func orderMessage(o db.Order, kind string) (string, bool) {
 		fmt.Fprintf(&b, "\n*Total: %s*", money.Format(o.TotalCents))
 		return b.String(), true
 	case msgReady:
+		if o.Consume == db.ConsumePickup {
+			return o.ClientName + ", seu pedido está pronto para retirada! 🍣", true
+		}
 		return o.ClientName + ", seu pedido está pronto! 🍣", true
 	case msgOut:
 		return o.ClientName + ", seu pedido saiu para entrega! 🛵", true
@@ -38,7 +41,7 @@ func orderMessage(o db.Order, kind string) (string, bool) {
 }
 
 // copyMessages lists the messages worth copying now: the confirmation for WhatsApp orders,
-// then "pronto" for eat-in once ready and "saiu" once the courier left.
+// then "pronto" for eat-in or pickup once ready and "saiu" once the courier left.
 func copyMessages(o db.Order) []struct{ Kind, Label, Text string } {
 	var out []struct{ Kind, Label, Text string }
 	add := func(kind, label string) {
@@ -51,7 +54,7 @@ func copyMessages(o db.Order) []struct{ Kind, Label, Text string } {
 	if len(o.Items) > 0 {
 		add(msgConfirm, "Copiar confirmação")
 	}
-	if o.Status == db.StatusReady && o.Consume == db.ConsumeLocal {
+	if o.Status == db.StatusReady && o.Consume != db.ConsumeDelivery {
 		add(msgReady, "Copiar \"pronto\"")
 	}
 	if o.Status == db.StatusOut {

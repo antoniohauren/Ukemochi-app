@@ -10,11 +10,9 @@ import (
 
 templ ReportPage(day time.Time, rep db.Report, cash cashBox, summary string) {
 	@Layout("Relatório · Ukemochi") {
-		<main class="mx-auto max-w-lg space-y-4 p-4">
+		<main class="mx-auto max-w-lg space-y-4 p-4 pb-28">
 			<header class="flex items-center gap-2">
-				@HomeLink()
 				<h1 class="flex-1 text-xl font-bold">Relatório</h1>
-				<a href="/admin/cardapio" class="inline-flex min-h-12 items-center px-3 text-sm font-medium text-ink-muted underline">Cardápio</a>
 			</header>
 			<form method="get" action="/admin/relatorio" class="flex items-center gap-2">
 				<a href={ templ.SafeURL("/admin/relatorio?dia=" + day.AddDate(0, 0, -1).Format(dayLayout)) } class={ buttonClass("secondary") + " w-12 px-0" } aria-label="Dia anterior">‹</a>
@@ -56,6 +54,7 @@ templ ReportPage(day time.Time, rep db.Report, cash cashBox, summary string) {
 				</div>
 			}
 		</main>
+		@BottomNav(navReport)
 		@copyScript()
 	}
 }

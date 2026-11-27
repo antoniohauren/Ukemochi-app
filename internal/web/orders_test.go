@@ -232,6 +232,40 @@ func TestConsumeAndSaiu(t *testing.T) {
 	}
 }
 
+func TestRetirada(t *testing.T) {
+	s, h, _ := dbServer(t)
+	ctx := context.Background()
+	form := newOrderForm("Bia")
+	form.Set("consumo", "retirada")
+	if rec := do(h, "POST", "/pedidos", form, false); rec.Code != http.StatusSeeOther {
+		t.Fatalf("create retirada: %d %s", rec.Code, rec.Body)
+	}
+	o, _ := s.DB.GetOrder(ctx, 1)
+	if o.Consume != db.ConsumePickup || o.Address != "" {
+		t.Fatalf("retirada order: consume %q address %q", o.Consume, o.Address)
+	}
+	if page := do(h, "GET", "/pedidos/1", nil, false).Body.String(); !strings.Contains(page, "Retirada") {
+		t.Error("order page should say Retirada")
+	}
+	if body := do(h, "GET", "/pedidos/1/imprimir", nil, false).Body.String(); !strings.Contains(body, "RETIRADA") {
+		t.Error("ticket should print RETIRADA")
+	}
+	if body := do(h, "GET", "/?status=&consumo=retirada", nil, false).Body.String(); !strings.Contains(body, "Bia") {
+		t.Error("retirada filter should list the order")
+	}
+	// A delivery switched to retirada drops its expected payment: the client pays at the counter.
+	do(h, "POST", "/pedidos/1/consumo", url.Values{"consumo": {"entrega"}, "endereco": {"Rua B, 2"}}, false)
+	if err := s.DB.SetExpectedPayment(ctx, 1, "pix", 0); err != nil {
+		t.Fatal(err)
+	}
+	if rec := do(h, "POST", "/pedidos/1/consumo", url.Values{"consumo": {"retirada"}}, false); rec.Code != http.StatusSeeOther {
+		t.Fatalf("switch to retirada: %d", rec.Code)
+	}
+	if o, _ := s.DB.GetOrder(ctx, 1); o.Consume != db.ConsumePickup || o.ExpectedMethod != "" {
+		t.Fatalf("after switch: consume %q expected %q", o.Consume, o.ExpectedMethod)
+	}
+}
+
 func TestBadIDs(t *testing.T) {
 	_, h, _ := dbServer(t)
 	for _, target := range []string{"/pedidos/0", "/pedidos/abc", "/pedidos/99", "/pedidos/99/imprimir"} {
@@ -254,6 +288,14 @@ func TestMessages(t *testing.T) {
 	}
 	if got, _ := orderMessage(o, msgReady); got != "Maria, seu pedido está pronto! 🍣" {
 		t.Errorf("ready: %q", got)
+	}
+	pickup := o
+	pickup.Consume = db.ConsumePickup
+	if got, _ := orderMessage(pickup, msgReady); got != "Maria, seu pedido está pronto para retirada! 🍣" {
+		t.Errorf("ready for pickup: %q", got)
+	}
+	if n := len(copyMessages(pickup)); n != 2 {
+		t.Errorf("copy messages for ready pickup: %d", n)
 	}
 	if got, _ := orderMessage(o, msgOut); got != "Maria, seu pedido saiu para entrega! 🛵" {
 		t.Errorf("out: %q", got)

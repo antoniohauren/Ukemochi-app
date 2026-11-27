@@ -2,7 +2,9 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	_ "embed"
+	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -37,35 +39,66 @@ func steps(src string) ([]step, error) {
 }
 
 // Migrate applies every schema step above the current PRAGMA user_version, each in its own transaction.
+// Steps run with foreign_keys off, so a step may rebuild a referenced table (SQLite can't alter a CHECK);
+// PRAGMA foreign_key_check runs before each commit instead.
 func (d *DB) Migrate(ctx context.Context) error {
 	all, err := steps(schema)
 	if err != nil {
 		return err
 	}
+	// Pin one connection: the foreign_keys pragma is per connection and a no-op inside a transaction.
+	conn, err := d.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
 	var current int
-	if err := d.QueryRowContext(ctx, "PRAGMA user_version").Scan(&current); err != nil {
+	if err := conn.QueryRowContext(ctx, "PRAGMA user_version").Scan(&current); err != nil {
 		return err
 	}
 	if current > len(all) {
 		return fmt.Errorf("database version %d is newer than this app (%d)", current, len(all))
 	}
+	if current == len(all) {
+		return nil
+	}
+	if _, err := conn.ExecContext(ctx, "PRAGMA foreign_keys = OFF"); err != nil {
+		return err
+	}
+	defer conn.ExecContext(context.Background(), "PRAGMA foreign_keys = ON")
 	for _, s := range all[current:] {
-		tx, err := d.BeginTx(ctx, nil)
-		if err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx, s.sql); err != nil {
-			tx.Rollback()
-			return fmt.Errorf("migration %d: %w", s.version, err)
-		}
-		// PRAGMA takes no placeholders; the version is an int from our own schema, not input.
-		if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", s.version)); err != nil {
-			tx.Rollback()
-			return fmt.Errorf("migration %d: %w", s.version, err)
-		}
-		if err := tx.Commit(); err != nil {
+		if err := applyStep(ctx, conn, s); err != nil {
 			return fmt.Errorf("migration %d: %w", s.version, err)
 		}
 	}
 	return nil
+}
+
+func applyStep(ctx context.Context, conn *sql.Conn, s step) error {
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, s.sql); err != nil {
+		return err
+	}
+	rows, err := tx.QueryContext(ctx, "PRAGMA foreign_key_check")
+	if err != nil {
+		return err
+	}
+	broken := rows.Next()
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return err
+	}
+	if broken {
+		return errors.New("foreign key check failed")
+	}
+	// PRAGMA takes no placeholders; the version is an int from our own schema, not input.
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", s.version)); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
