@@ -3,7 +3,7 @@
 ## Order attributes
 
 - `channel`: `whatsapp` or `balcao` (in-house).
-- `consume`: `entrega` (delivery) or `local` (eat in).
+- `consume`: `entrega` (delivery), `local` (eat in) or `retirada` (the client picks it up at the counter; WhatsApp only, balcão is always `local`).
 - `status`: see the state machine below.
 - payment: zero or more parts, each with a method (`pix`, `credito`, `debito`, `dinheiro`) and an amount. Unpaid with no parts, paid when the parts add up to the total.
 
@@ -12,7 +12,7 @@
 ```
 aberto -> cozinha -> pronto -> saiu -> fechado
    \         \          \         \      ^
-    \         \          +---------\-----+   (consume = local)
+    \         \          +---------\-----+   (consume = local or retirada)
      +---------+----------+---------+-> cancelado
 
 aberto -> pronto                (Marcar como pronto: no kitchen ticket)
@@ -35,11 +35,11 @@ cozinha, pronto    -> aberto   (an item is added, removed or changed)
 - Payment is independent of status. Parts can be added or removed at any status except `fechado` and `cancelado`.
 - The payment sheet starts with three **Como pagar** buttons, each showing its own screen: **Tudo** pays all that is left (the amount is locked); **Dividir** shows **Dividir entre** (number of people) and fills one equal share, which can also be typed over; **Por Consumo** shows a stepper per order line where each person picks the units they had, and the part is their sum (locked). A shared item (a 1L soda for three) is divided with **Dividir item entre** (2 to 20 people) under its line: the stepper then counts parts, each costing the item price divided by the parts (rounded up, so all parts add up to the item). The division locks once a part of it is paid. The sheet opens on the mode used so far: Por consumo once a part was paid that way, Dividir while the stored split is above 1, Tudo otherwise. Each part has its own method. A part can't be more than what is left.
 - Por consumo parts remember their units (`order_payment_items`): the next person can only pick units not yet paid, and the part lists them (`2x Hot roll · 1x Coca`). Removing the part frees its units. Removing an item line drops its rows but keeps the part's amount.
-- A delivery with something left to pay can record a **Forma prevista** in its own **Pagamento na entrega** sheet, opened with **Paga na entrega** next to **Já pagou** in the order panel: how the client will pay, and for Dinheiro an optional **Troco para** (the note they pay with, at least what is left). It never counts as paid. The ticket prints it under A PAGAR as `Pagar com`, `Troco para` and `Levar troco` (the change the courier takes). An order eaten in pays at the counter, so it has none; switching a delivery to local clears it.
+- A delivery with something left to pay can record a **Forma prevista** in its own **Pagamento na entrega** sheet, opened with **Paga na entrega** next to **Já pagou** in the order panel: how the client will pay, and for Dinheiro an optional **Troco para** (the note they pay with, at least what is left). It never counts as paid. The ticket prints it under A PAGAR as `Pagar com`, `Troco para` and `Levar troco` (the change the courier takes). An order eaten in or picked up pays at the counter, so it has none; switching a delivery to local or retirada clears it.
 - **Marcar como pronto** (next to **Imprimir ticket**, under **Enviar à cozinha**) moves an `aberto` order with items straight to `pronto` without printing the kitchen ticket, for food made without one.
 - A `fechado` or `cancelado` order can be reopened at any time. It goes back to `aberto`, keeps its payment and leaves the daily report until it is closed again.
 - An order can't be closed until its parts add up to the total exactly (none missing, none over after items were removed).
-- `saiu` exists only when `consume = entrega`.
+- `saiu` exists only when `consume = entrega`. A `retirada` order goes from `pronto` to `fechado` when the client picks it up.
 - Items can be edited while the status is `aberto`, `cozinha` or `pronto`. Any item change (add, remove, quantity, note) in `cozinha` or `pronto` moves the order back to `aberto`; tap **Enviar à cozinha** again to print the full updated ticket. Reprinting the ticket is allowed at any status.
 
 ## Flow 1: WhatsApp delivery
@@ -90,5 +90,7 @@ Olá, Maria! Confirmando seu pedido:
 ```
 
 Ready (eat in): `Maria, seu pedido está pronto! 🍣`
+
+Ready (retirada): `Maria, seu pedido está pronto para retirada! 🍣`
 
 Out for delivery: `Maria, seu pedido saiu para entrega! 🛵`

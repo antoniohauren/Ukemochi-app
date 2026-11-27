@@ -54,7 +54,7 @@ Menu rows are never deleted, only set to `active = 0`. Old orders keep pointing 
 CREATE TABLE orders (
   id               INTEGER PRIMARY KEY,
   channel          TEXT NOT NULL CHECK (channel IN ('whatsapp','balcao')),
-  consume          TEXT NOT NULL CHECK (consume IN ('entrega','local')),
+  consume          TEXT NOT NULL CHECK (consume IN ('entrega','local','retirada')), -- retirada: migration 9 (table rebuild)
   client_name      TEXT NOT NULL,
   phone_last4      TEXT,
   status           TEXT NOT NULL DEFAULT 'aberto'

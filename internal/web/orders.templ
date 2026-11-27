@@ -129,14 +129,18 @@ templ NewOrderPage(o db.NewOrder, errMsg, errField string) {
 				<div class="space-y-5 group-has-[#canal-balcao:checked]:hidden">
 					<fieldset>
 						<legend class="mb-1 text-sm font-medium text-ink-muted">Consumo</legend>
-						<div class="grid grid-cols-2 gap-2">
+						<div class="grid grid-cols-3 gap-2">
 							<label class={ optionClass() }>
-								<input type="radio" name="consumo" value="entrega" id="consumo-entrega" class="sr-only" checked?={ o.Consume != db.ConsumeLocal }/>
+								<input type="radio" name="consumo" value={ db.ConsumeDelivery } id="consumo-entrega" class="sr-only" checked?={ o.Consume != db.ConsumeLocal && o.Consume != db.ConsumePickup }/>
 								Entrega
 							</label>
 							<label class={ optionClass() }>
-								<input type="radio" name="consumo" value="local" class="sr-only" checked?={ o.Consume == db.ConsumeLocal }/>
+								<input type="radio" name="consumo" value={ db.ConsumeLocal } class="sr-only" checked?={ o.Consume == db.ConsumeLocal }/>
 								No local
+							</label>
+							<label class={ optionClass() }>
+								<input type="radio" name="consumo" value={ db.ConsumePickup } class="sr-only" checked?={ o.Consume == db.ConsumePickup }/>
+								Retirada
 							</label>
 						</div>
 					</fieldset>
@@ -203,7 +207,7 @@ templ OrderEditorPage(o db.Order, menu []db.Category) {
 				}
 			}
 			if canChangeConsume(o) {
-				@BottomSheet("consumo-sheet", "Entrega") {
+				@BottomSheet("consumo-sheet", "Consumo") {
 					@ConsumePanel(o)
 				}
 			}
@@ -282,7 +286,7 @@ templ DeliveryPaymentUpdate(o db.Order, toast string) {
 // consumeSummary shows how the order is consumed in the order panel, with a button that opens the delivery sheet.
 templ consumeSummary(o db.Order) {
 	<section class="space-y-3 rounded-xl border border-line p-3" aria-labelledby="consumo-titulo">
-		<h3 id="consumo-titulo" class="font-semibold">Entrega</h3>
+		<h3 id="consumo-titulo" class="font-semibold">Consumo</h3>
 		if o.Consume == db.ConsumeDelivery {
 			<p>
 				Entrega
@@ -290,12 +294,14 @@ templ consumeSummary(o db.Order) {
 					<span class="text-ink-muted">· { o.Address }</span>
 				}
 			</p>
+		} else if o.Consume == db.ConsumePickup {
+			<p>Retirada no balcão</p>
 		} else {
 			<p>Consumir no local</p>
 		}
 		<div class="grid">
 			@Button("secondary", templ.Attributes{"type": "button", "onclick": templ.JSUnsafeFuncCall("this.closest('dialog')?.close(); document.getElementById('consumo-sheet').showModal()")}) {
-				Alterar entrega
+				Alterar consumo
 			}
 		</div>
 	</section>
@@ -318,14 +324,18 @@ templ ConsumePanel(o db.Order) {
 		>
 			<fieldset>
 				<legend class="mb-1 text-sm font-medium text-ink-muted">Consumo</legend>
-				<div class="grid grid-cols-2 gap-2">
+				<div class="grid grid-cols-3 gap-2">
 					<label class={ optionClass() }>
 						<input type="radio" name="consumo" value={ db.ConsumeDelivery } id="alterar-consumo-entrega" class="sr-only" checked?={ o.Consume == db.ConsumeDelivery }/>
 						Entrega
 					</label>
 					<label class={ optionClass() }>
 						<input type="radio" name="consumo" value={ db.ConsumeLocal } class="sr-only" checked?={ o.Consume == db.ConsumeLocal }/>
-						Consumir no local
+						No local
+					</label>
+					<label class={ optionClass() }>
+						<input type="radio" name="consumo" value={ db.ConsumePickup } class="sr-only" checked?={ o.Consume == db.ConsumePickup }/>
+						Retirada
 					</label>
 				</div>
 			</fieldset>

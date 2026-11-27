@@ -25,7 +25,7 @@ var listStatusLabels = map[string]string{
 	db.StatusOut:     "Saiu",
 }
 
-var listConsumes = []string{db.ConsumeDelivery, db.ConsumeLocal}
+var listConsumes = []string{db.ConsumeDelivery, db.ConsumeLocal, db.ConsumePickup}
 
 // filterCookie remembers the last filter, so coming back from an order keeps the same tab.
 const filterCookie = "pedidos_filtro"
@@ -35,7 +35,7 @@ func validListStatus(s string) bool {
 }
 
 func validListConsume(c string) bool {
-	return c == "" || c == db.ConsumeDelivery || c == db.ConsumeLocal
+	return c == "" || db.ValidConsume(c)
 }
 
 // URL is the list address for f. Both keys are always present, so "all" differs from "no filter given".

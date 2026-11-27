@@ -54,13 +54,69 @@ func TestMigrateIdempotent(t *testing.T) {
 	}
 	var v int
 	d.QueryRow("PRAGMA user_version").Scan(&v)
-	if v != 8 {
-		t.Fatalf("user_version = %d, want 8", v)
+	if v != 9 {
+		t.Fatalf("user_version = %d, want 9", v)
 	}
 	var fk int
 	d.QueryRow("PRAGMA foreign_keys").Scan(&fk)
 	if fk != 1 {
 		t.Fatal("foreign_keys off")
+	}
+}
+
+// Migration 9 rebuilds orders for retirada: rows, their items and payments must survive it.
+func TestMigrateRebuildKeepsOrders(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "old.db")
+	d, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := seed(t, d)
+	id := newOrder(t, d, ConsumeDelivery)
+	if err := d.AddItem(ctx, id, p, 2, "sem cebola"); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.AddPayment(ctx, id, "pix", 600, 0, 1); err != nil {
+		t.Fatal(err)
+	}
+	// Roll back to version 8: the old orders table without retirada.
+	all, _ := steps(schema)
+	for _, q := range []string{"PRAGMA foreign_keys = OFF", "PRAGMA legacy_alter_table = ON", "DROP INDEX orders_created_at",
+		"ALTER TABLE orders RENAME TO orders_v9", "PRAGMA user_version = 8"} {
+		if _, err := d.Exec(q); err != nil {
+			t.Fatal(q, err)
+		}
+	}
+	old := strings.Replace(strings.SplitN(all[8].sql, "INSERT INTO", 2)[0], "'entrega','local','retirada'", "'entrega','local'", 1)
+	old = strings.Replace(old, "orders_new", "orders", 1)
+	for _, q := range []string{old, "INSERT INTO orders SELECT * FROM orders_v9", "DROP TABLE orders_v9",
+		"CREATE INDEX orders_created_at ON orders(created_at)", "PRAGMA legacy_alter_table = OFF", "PRAGMA foreign_keys = ON"} {
+		if _, err := d.Exec(q); err != nil {
+			t.Fatal(q, err)
+		}
+	}
+	if _, err := d.CreateOrder(ctx, NewOrder{Channel: "whatsapp", Consume: ConsumePickup, ClientName: "X"}); err == nil {
+		t.Fatal("version 8 should refuse retirada")
+	}
+	d.Close()
+
+	d, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	o, err := d.GetOrder(ctx, id)
+	if err != nil || o.Address != "Rua A, 1" || len(o.Items) != 1 || o.Items[0].Note != "sem cebola" || o.PaidCents != 600 {
+		t.Fatalf("order after migration: %+v %v", o, err)
+	}
+	if _, err := d.CreateOrder(ctx, NewOrder{Channel: "whatsapp", Consume: ConsumePickup, ClientName: "Bia"}); err != nil {
+		t.Fatal(err)
+	}
+	var fk int
+	d.QueryRow("PRAGMA foreign_keys").Scan(&fk)
+	if fk != 1 {
+		t.Fatal("foreign_keys off after migration")
 	}
 }
 
@@ -272,6 +328,18 @@ func TestStatusTransitions(t *testing.T) {
 		}
 		if err := d.SetStatus(ctx, id, StatusClosed); !errors.Is(err, ErrPaidMismatch) {
 			t.Fatalf("close with a part left: %v", err)
+		}
+	})
+
+	t.Run("retirada closes from pronto, no saiu", func(t *testing.T) {
+		id := order(ConsumePickup)
+		d.SetStatus(ctx, id, StatusReady)
+		if err := d.SetStatus(ctx, id, StatusOut); !errors.Is(err, ErrBadTransition) {
+			t.Fatalf("saiu for retirada: %v", err)
+		}
+		d.AddPayment(ctx, id, "pix", 600, 0, 1)
+		if err := d.SetStatus(ctx, id, StatusClosed); err != nil {
+			t.Fatal(err)
 		}
 	})
 
