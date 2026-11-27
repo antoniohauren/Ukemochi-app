@@ -37,7 +37,8 @@ Go 1.22 `http.ServeMux` patterns.
 
 | Method & path                       | Purpose                                 |
 |-------------------------------------|-----------------------------------------|
-| `GET /`                             | Open orders (cards with status)         |
+| `GET /?status=&consumo=`            | Open orders, filtered by status (`aberto`, `cozinha`, `pronto`, `saiu`) and consume (`entrega`, `local`); empty = all. A plain `/` reuses the last filter (cookie, 12h) |
+| `GET /pedidos/fechados?dia=`         | One day's fechado and cancelado orders (cancelado counts on its creation time), newest first; empty `dia` = today |
 | `GET /pedidos/novo`                 | New order form                          |
 | `POST /pedidos`                     | Create order                            |
 | `GET /pedidos/{id}`                 | Order editor                            |
@@ -63,7 +64,9 @@ Status transitions are checked on the server. See the rules in [flows](flows.md)
 
 ## Screens
 
-- **Order list:** open orders, newest first, with status color and total. Large **Novo pedido** button.
+- **Order list:** open orders, newest first, with status color and total. Two filter buttons on top, **Status** (Todos, Abertos, Cozinha, Prontos, Saiu) and **Tipo** (Todos, Entrega, No local), each showing its choice and opening a sheet of options with their counts; Entrega + Prontos is what is left to deliver. The 15s refresh waits while a sheet is open.
+- **Bottom nav:** on the order lists, report and menu: Abertos, Fechados, a raised **+** (Novo pedido) in the middle, Relatório and a ☰ Menu that opens a sheet with Cardápio and the dark-mode switch.
+- **Closed orders:** one day at a time (‹ date ›), fechado and cancelado orders with the same cards as the open list; tap one to see or reopen it. No totals: those are on the admin report.
 - **Order editor:** category tabs, then a product grid. Tap to add. The current order sits in a bottom sheet with quantities, total and actions.
 - **Payment:** a sheet opened from the actions sheet. It lists the parts paid so far and what is left, then method buttons, a **Dividir entre** people picker (− N +, 1 to 20, like the quantity picker) and the amount, which holds one share (all that is left for 1 person). The picker keeps its value between parts. When **Dinheiro** is chosen, a cash field shows the change live. **Voltar** returns to the actions sheet.
 - **Entrega:** a sheet opened from the actions sheet with the address and the **Entrega** / **Consumir no local** buttons. Saving returns to the actions sheet.

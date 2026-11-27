@@ -1,0 +1,40 @@
+package web
+
+import (
+	"time"
+
+	"github.com/antoniohauren/ukemochi/internal/db"
+)
+
+templ ClosedOrdersPage(day time.Time, orders []db.Order) {
+	@Layout("Fechados · Ukemochi") {
+		<main class="mx-auto max-w-lg space-y-4 p-4 pb-28">
+			<header class="flex min-h-12 items-center">
+				<h1 class="text-2xl font-bold">Pedidos fechados</h1>
+			</header>
+			<form method="get" action={ templ.SafeURL(closedURL) } class="flex items-center gap-2">
+				<a href={ templ.SafeURL(closedDayURL(day.AddDate(0, 0, -1))) } class={ buttonClass("secondary") + " w-12 px-0" } aria-label="Dia anterior">‹</a>
+				<input type="date" name="dia" value={ day.Format(dayLayout) } onchange="this.form.submit()" class={ fieldClass() + " flex-1" } aria-label="Dia"/>
+				<a href={ templ.SafeURL(closedDayURL(day.AddDate(0, 0, 1))) } class={ buttonClass("secondary") + " w-12 px-0" } aria-label="Próximo dia">›</a>
+				<noscript>
+					@Button("secondary", templ.Attributes{"type": "submit"}) {
+						Ver
+					}
+				</noscript>
+			</form>
+			if len(orders) == 0 {
+				<p class="py-8 text-center text-ink-muted">Nenhum pedido fechado neste dia.</p>
+			} else {
+				<p class="text-sm text-ink-muted">{ plural(int64(len(orders)), "pedido", "pedidos") }</p>
+			}
+			<ul class="space-y-3">
+				for _, o := range orders {
+					<li>
+						@orderCard(o)
+					</li>
+				}
+			</ul>
+		</main>
+		@BottomNav(navClosed)
+	}
+}

@@ -48,15 +48,6 @@ func (s *Server) registerOrders(mux *http.ServeMux) {
 	mux.HandleFunc("GET /pedidos/{id}/mensagem/{tipo}", s.orderMessage)
 }
 
-func (s *Server) orderList(w http.ResponseWriter, r *http.Request) {
-	orders, err := s.DB.ListOpenOrders(r.Context())
-	if err != nil {
-		fail(w, r, err)
-		return
-	}
-	render(w, r, http.StatusOK, OrderListPage(orders))
-}
-
 func (s *Server) createOrder(w http.ResponseWriter, r *http.Request) {
 	if err := parseForm(w, r); err != nil {
 		fail(w, r, err)

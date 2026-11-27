@@ -230,6 +230,17 @@ func (d *DB) ListOpenOrders(ctx context.Context) ([]Order, error) {
 		func(r *sql.Rows, o *Order) error { return scanOrder(r, o) })
 }
 
+// ListClosedOrders returns the fechado and cancelado orders of [from, to), newest first.
+// A fechado order counts on its closed_at; a cancelado one has none, so it counts on its created_at.
+func (d *DB) ListClosedOrders(ctx context.Context, from, to time.Time) ([]Order, error) {
+	return queryAll(ctx, d, `SELECT `+orderCols+` FROM orders o
+		WHERE o.status IN ('fechado', 'cancelado')
+		AND COALESCE(o.closed_at, o.created_at) >= ? AND COALESCE(o.closed_at, o.created_at) < ?
+		ORDER BY COALESCE(o.closed_at, o.created_at) DESC, o.id DESC`,
+		func(r *sql.Rows, o *Order) error { return scanOrder(r, o) },
+		from.UTC().Format(timeFormat), to.UTC().Format(timeFormat))
+}
+
 // AddItem adds qty of a product to an open order, snapshotting its name and price.
 // The same product with the same note is merged into one line.
 func (d *DB) AddItem(ctx context.Context, orderID, productID, qty int64, note string) error {
